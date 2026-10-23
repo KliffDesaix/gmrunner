@@ -1,0 +1,14 @@
+FFmpeg (libavformat, libavcodec, libavutil, libswscale, libswresample), https://ffmpeg.org
+
+Copyright (c) the FFmpeg developers.
+
+The Nintendo Switch build of gmRunner contains FFmpeg as packaged by devkitPro (switch-ffmpeg),
+which is configured with --enable-gpl. This FFmpeg is licensed under the GNU General Public
+License, version 2 or later; the full text is in GPL-2.0.txt. Its source code is available from
+https://ffmpeg.org/download.html and devkitPro's build recipe from
+https://github.com/devkitPro/pacman-packages (switch/ffmpeg).
+
+The PortMaster build of gmRunner contains FFmpeg 7.1.1 built from its source release without
+--enable-gpl (tools/portmaster/Dockerfile has the configuration). This FFmpeg is licensed under
+the GNU Lesser General Public License, version 2.1 or later; the full text is in LGPL-2.1.txt.
+Its source code is available from https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz.

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App icon: a gamepad on a rounded tile. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#3B5BA9" android:pathData="M30,8h48a22,22 0,0 1,22 22v48a22,22 0,0 1,-22 22h-48a22,22 0,0 1,-22 -22v-48a22,22 0,0 1,22 -22z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M38,40h32c8,0 13,6 14,14l2,14c1,6 -6,10 -11,6l-8,-7h-26l-8,7c-5,4 -12,0 -11,-6l2,-14c1,-8 6,-14 14,-14z" />
+    <path android:fillColor="#3B5BA9" android:pathData="M40,49h4v5h5v4h-5v5h-4v-5h-5v-4h5z" />
+    <path android:fillColor="#3B5BA9" android:pathData="M68,51m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path android:fillColor="#3B5BA9" android:pathData="M74,57m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+</vector>
