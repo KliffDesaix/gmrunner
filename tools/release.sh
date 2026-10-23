@@ -80,6 +80,8 @@ fi
 
 if want android; then
     echo "== Android"
+    keyprops="${GMR_KEYSTORE_PROPERTIES:-$HOME/.gmrunner/keystore.properties}"
+    [ -f "$keyprops" ] || { echo "no release key: run tools/android/make-release-key.sh first" >&2; exit 1; }
     [ -n "${JAVA_HOME:-}" ] || [ ! -d "$HOME/Library/Android/jdk17/Contents/Home" ] || export JAVA_HOME="$HOME/Library/Android/jdk17/Contents/Home"
     (cd android && ./gradlew -q assembleRelease)
     cp android/app/build/outputs/apk/release/app-release.apk "$out/gmrunner-$version-android.apk"
