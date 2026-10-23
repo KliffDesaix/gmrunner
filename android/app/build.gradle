@@ -42,12 +42,32 @@ android {
             assets.srcDirs += ['build/generated/licenseAssets']
         }
     }
+    // Release builds are signed with the key tools/android/make-release-key.sh made (outside the
+    // repository: ~/.gmrunner/keystore.properties, or GMR_KEYSTORE_PROPERTIES), else the debug key.
+    def keyProps = new Properties()
+    def keyFile = file(System.getenv('GMR_KEYSTORE_PROPERTIES') ?: "${System.getProperty('user.home')}/.gmrunner/keystore.properties")
+    if (keyFile.exists()) keyFile.withInputStream { keyProps.load(it) }
+    signingConfigs {
+        if (keyFile.exists()) {
+            release {
+                storeFile file(keyProps['storeFile'])
+                storePassword keyProps['storePassword']
+                keyAlias keyProps['keyAlias']
+                keyPassword keyProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug  // sideloading: sign with the debug key
+            if (keyFile.exists()) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn('No release key (tools/android/make-release-key.sh): signing with the debug key')
+                signingConfig signingConfigs.debug
+            }
         }
     }
     buildFeatures {

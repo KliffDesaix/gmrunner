@@ -49,8 +49,10 @@ cd android
 ./gradlew assembleRelease
 ```
 
-The APK is `android/app/build/outputs/apk/release/app-release.apk` (signed with the debug key,
-for sideloading). Install it with `adb install` or by opening it on the phone.
+The APK is `android/app/build/outputs/apk/release/app-release.apk`. It is signed with the release
+key that `tools/android/make-release-key.sh` creates once (in `~/.gmrunner/`, outside the
+repository; back it up, since updates must be signed with the same key), or else with the debug key
+(for sideloading). Install it with `adb install` or by opening it on the phone.
 
 Games go in a **gmrunner** folder on the phone's internal storage
 (`/storage/emulated/0/gmrunner/<game>/data.win`, copied over USB or with a file manager). The
