@@ -1,0 +1,2 @@
+# One room per line: the room's name, then the objects placed in it (the first room runs first).
+rm_gmtest obj_gmtest

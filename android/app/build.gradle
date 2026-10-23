@@ -1,0 +1,82 @@
+// gmrunner for Android: a Compose launcher (Material 3 Expressive) and the game activity,
+// SDL2's Java activity (from third_party/SDL2) running libmain.so built from the repository's
+// CMakeLists.txt in a process of its own. See docs/MOBILE.md.
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'org.gmrunner.app'
+    compileSdk 36
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId 'org.gmrunner.app'
+        minSdk 24
+        targetSdk 34
+        // VERSION at the repository root: 1.2.3 is version code 10203
+        def gmrVersion = file('../../VERSION').text.trim()
+        def parts = (gmrVersion.tokenize('.') + ['0', '0', '0']).take(3).collect { it.replaceAll(/[^0-9].*/, '') ?: '0' }
+        versionCode parts[0].toInteger() * 10000 + parts[1].toInteger() * 100 + parts[2].toInteger()
+        versionName gmrVersion
+        ndk {
+            abiFilters 'arm64-v8a'  // phones; add 'x86_64' for an emulator on an Intel PC
+        }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static', '-DCMAKE_BUILD_TYPE=Release'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path '../../CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    sourceSets {
+        main {
+            java.srcDirs += ['../../third_party/SDL2/android-project/app/src/main/java']
+            assets.srcDirs += ['build/generated/licenseAssets']
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug  // sideloading: sign with the debug key
+        }
+    }
+    buildFeatures {
+        compose true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.9.2'
+    implementation 'androidx.compose.ui:ui:1.11.0-beta02'
+    implementation 'androidx.compose.foundation:foundation:1.11.0-beta02'
+    implementation 'androidx.compose.material3:material3:1.5.0-alpha18'
+    implementation 'androidx.compose.material:material-icons-extended:1.7.8'
+}
+
+// The third-party licenses shown in the launcher (Licenses screen), from the repository's licenses/.
+def copyLicenses = tasks.register('copyLicenses', Copy) {
+    from('../../licenses') {
+        include 'GPL-3.0.txt', 'SDL2.txt', 'stb.txt', 'liberation-fonts.txt', 'bzip2.txt', 'androidx.txt', 'kotlin.txt', 'Apache-2.0.txt', 'gamemaker-html5.txt'
+    }
+    into layout.buildDirectory.dir('generated/licenseAssets/licenses')
+}
+preBuild.dependsOn copyLicenses
