@@ -674,16 +674,32 @@ void DataWin::parseTGIN(uint32_t o) {
     uint32_t end = o + chunks_.at("TGIN").size;
     pointerList(o + 4, [&](uint32_t, uint32_t p) {
         uint32_t dirPtr = r_.u32(p + 4), extPtr = r_.u32(p + 8);
-        // Older groups go straight to their list pointers, which point inside TGIN.
-        if ((dirPtr >= o && dirPtr < end) || (extPtr >= o && extPtr < end) || r_.u32(p + 12) >= 16) return;
-        std::string name(r_.str(r_.u32(p))), dir(r_.str(dirPtr)), ext(r_.str(extPtr));
-        uint32_t pages = r_.u32(p + 16), n = r_.u32(pages);
-        for (uint32_t i = 0; i < n && i < 100000; i++) {
-            uint32_t id = r_.u32(pages + 4 + i * 4);
-            if (id >= textures.size() || textures[id].data) continue;
-            textures[id].externalFile = (dir.empty() ? "" : dir + "/") + name + "_" +
-                                        std::to_string(textures[id].groupIndex) + ext;
+        // Name, then (2022.9+) directory, extension and load type, then pointers to the lists of
+        // pages, sprites, skeleton sprites, fonts and tilesets. Older groups go straight to
+        // their lists, which are inside TGIN.
+        bool old = (dirPtr >= o && dirPtr < end) || (extPtr >= o && extPtr < end) || r_.u32(p + 12) >= 16;
+        uint32_t lists = old ? p + 4 : p + 16;
+        auto list = [&](uint32_t at, std::vector<int32_t>& out) {
+            uint32_t q = r_.u32(at);
+            if (q < o || q + 4 > end) return;
+            uint32_t n = std::min(r_.u32(q), (end - q - 4) / 4);
+            for (uint32_t i = 0; i < n; i++) out.push_back(r_.i32(q + 4 + i * 4));
+        };
+        TextureGroup g;
+        g.name = std::string(r_.str(r_.u32(p)));
+        list(lists, g.pages);
+        list(lists + 4, g.sprites);
+        list(lists + 12, g.fonts);
+        list(lists + 16, g.tilesets);
+        if (!old) {
+            std::string dir(r_.str(dirPtr)), ext(r_.str(extPtr));
+            for (int32_t id : g.pages) {
+                if (id < 0 || static_cast<size_t>(id) >= textures.size() || textures[id].data) continue;
+                textures[id].externalFile = (dir.empty() ? "" : dir + "/") + g.name + "_" +
+                                            std::to_string(textures[id].groupIndex) + ext;
+            }
         }
+        textureGroups.push_back(std::move(g));
     });
 }
 

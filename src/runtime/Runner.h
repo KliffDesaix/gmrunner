@@ -85,6 +85,7 @@ struct RoomBackgroundState {
 struct Tile {
     int32_t id = 0;
     int32_t background = -1;
+    int32_t layer = -1;  // GMS2: the asset layer it's on (layer_get_all_elements lists it)
     double x = 0, y = 0;
     int32_t left = 0, top = 0, width = 0, height = 0;
     double depth = 0, xscale = 1, yscale = 1;
@@ -380,6 +381,7 @@ public:
 
 private:
     void buildEventTables();
+    void prefetchRoomTextures();
     void loadRoom(int32_t r, bool first);
     void leaveRoom();
     void buildCollisionPairs();

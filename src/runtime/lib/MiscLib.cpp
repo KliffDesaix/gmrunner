@@ -551,40 +551,96 @@ GMFN(texture_get_width) {
     int w, h;
     return Value(G.textureInfo(texArg(ARG(0)), t, w, h) ? 1.0 : 0.0);
 }
-// Texture groups: every texture page is loaded at start, so a group lists all pages and every
-// texture is ready (texturegroup_status_fetched).
-GMFN(texturegroup_get_textures) {
+// Texture groups (TGIN, 2.3+): their pages are loaded when first drawn, or ahead of that by
+// texture_prefetch / texturegroup_load, and dropped by texture_flush / texturegroup_unload.
+// Games without group data (GMS 1.x) get every page and asset in one group of any name.
+static const TextureGroup* textureGroup(Runner& rt, const Value& v) {
+    std::string name = v.toString();
+    for (auto& g : rt.dw.textureGroups)
+        if (g.name == name) return &g;
+    return nullptr;
+}
+static std::vector<int> groupPages(Runner& rt, const Value& v) {
+    if (const TextureGroup* g = textureGroup(rt, v)) return std::vector<int>(g->pages.begin(), g->pages.end());
+    std::vector<int> all;
+    if (rt.dw.textureGroups.empty())
+        for (size_t i = 0; i < rt.dw.textures.size(); i++) all.push_back(static_cast<int>(i));
+    return all;
+}
+static std::vector<int> spritePages(Runner& rt, const Value& v) {
+    std::vector<int> pages;
+    auto add = [&](int32_t s) {
+        if (s < 0 || static_cast<size_t>(s) >= rt.dw.sprites.size()) return;
+        for (int32_t t : rt.dw.sprites[s].frames)
+            if (t >= 0 && static_cast<size_t>(t) < rt.dw.tpag.size()) pages.push_back(rt.dw.tpag[t].texture);
+    };
+    if (GMArray* a = v.arr()) {
+        for (auto& row : a->rows)
+            for (auto& e : row) add(static_cast<int32_t>(e.num()));
+    } else {
+        add(static_cast<int32_t>(v.num()));
+    }
+    return pages;
+}
+static Value indexArray(const std::vector<int32_t>* list, size_t all) {
     Value arr = Value::newArray();
     GMArray* a = arr.writableArray();
     a->rows.resize(1);
-    for (size_t i = 0; i < G.pages().size(); i++) a->rows[0].push_back(Value(static_cast<double>(i)));
+    if (list)
+        for (int32_t i : *list) a->rows[0].push_back(Value(static_cast<double>(i)));
+    else
+        for (size_t i = 0; i < all; i++) a->rows[0].push_back(Value(static_cast<double>(i)));
     return arr;
 }
-GMFN(texturegroup_get_sprites) {
-    Value arr = Value::newArray();
-    GMArray* a = arr.writableArray();
-    a->rows.resize(1);
-    for (size_t i = 0; i < rt.dw.sprites.size(); i++) a->rows[0].push_back(Value(static_cast<double>(i)));
-    return arr;
+// No group data: all of them.
+#define GROUP_LIST(field, count)                                                                          \
+    const TextureGroup* g = textureGroup(rt, ARG(0));                                                     \
+    if (!g && !rt.dw.textureGroups.empty()) return indexArray(nullptr, 0);                               \
+    return indexArray(g ? &g->field : nullptr, count)
+GMFN(texturegroup_get_textures) { GROUP_LIST(pages, rt.dw.textures.size()); }
+GMFN(texturegroup_get_sprites) { GROUP_LIST(sprites, rt.dw.sprites.size()); }
+GMFN(texturegroup_get_fonts) { GROUP_LIST(fonts, rt.dw.fonts.size()); }
+GMFN(texturegroup_get_tilesets) { GROUP_LIST(tilesets, rt.dw.backgrounds.size()); }
+#undef GROUP_LIST
+GMFN(texturegroup_exists) { return boolV(textureGroup(rt, ARG(0)) || rt.dw.textureGroups.empty()); }
+// texturegroup_status_unloaded (0) for unknown groups, else fetched (3) once all of its pages are
+// on the GPU and loaded (2) before that: the pages are in data.win or next to it.
+GMFN(texturegroup_get_status) {
+    if (!textureGroup(rt, ARG(0)) && !rt.dw.textureGroups.empty()) return Value(0.0);
+    for (int p : groupPages(rt, ARG(0)))
+        if (!G.pageLoaded(p)) return Value(2.0);
+    return Value(3.0);
 }
-GMFN(texturegroup_get_fonts) {
-    Value arr = Value::newArray();
-    GMArray* a = arr.writableArray();
-    a->rows.resize(1);
-    for (size_t i = 0; i < rt.dw.fonts.size(); i++) a->rows[0].push_back(Value(static_cast<double>(i)));
-    return arr;
+// texturegroup_load(name, [prefetch]): pages are read when needed, so loading is fetching.
+GMFN(texturegroup_load) {
+    if (!textureGroup(rt, ARG(0)) && !rt.dw.textureGroups.empty()) return Value(-1.0);
+    if (argc < 2 || ARG(1).truthy()) G.prefetchPages(groupPages(rt, ARG(0)));
+    return Value(0.0);
 }
-GMFN(texturegroup_get_tilesets) {
-    Value arr = Value::newArray();
-    GMArray* a = arr.writableArray();
-    a->rows.resize(1);
-    for (size_t i = 0; i < rt.dw.backgrounds.size(); i++) a->rows[0].push_back(Value(static_cast<double>(i)));
-    return arr;
+GMFN(texturegroup_unload) {
+    G.flushPages(groupPages(rt, ARG(0)));
+    return Value();
 }
-GMFN(texturegroup_get_status) { return Value(3.0); }  // texturegroup_status_fetched
-GMFN(texturegroup_load) { return Value(0.0); }
-GMFN(texturegroup_unload) { return Value(); }
-GMFN(texturegroup_exists) { return boolV(true); }
+GMFN(texture_prefetch) {
+    G.prefetchPages(groupPages(rt, ARG(0)));
+    return Value(0.0);
+}
+GMFN(texture_flush) {
+    G.flushPages(groupPages(rt, ARG(0)));
+    return Value(0.0);
+}
+GMFN(sprite_prefetch) {
+    G.prefetchPages(spritePages(rt, ARG(0)));
+    return Value(0.0);
+}
+GMFN(sprite_flush) {
+    G.flushPages(spritePages(rt, ARG(0)));
+    return Value(0.0);
+}
+GMFN(draw_texture_flush) {
+    G.flushAllPages();
+    return Value();
+}
 GMFN(texture_is_ready) { return boolV(true); }
 GMFN(texture_get_uvs) {  // a whole texture page: left, top, right, bottom, then offsets and ratios
     return numArray({0, 0, 1, 1, 0, 0, 1, 1});
@@ -1502,7 +1558,10 @@ void registerMiscBuiltins(Runner& rt) {
     GMREG(get_login_async);
     GMREG(texturegroup_get_textures); GMREG(texturegroup_get_sprites); GMREG(texturegroup_get_fonts);
     GMREG(texturegroup_get_tilesets); GMREG(texturegroup_get_status); GMREG(texturegroup_load);
-    GMREG(texturegroup_unload); GMREG(texturegroup_exists); GMREG(texture_is_ready); GMREG(texture_get_uvs);
+    GMREG(texturegroup_unload); GMREG(texturegroup_exists); GMREG(texture_is_ready); GMREG(texture_prefetch);
+    GMREG(texture_flush); GMREG(sprite_prefetch); GMREG(sprite_flush); GMREG(draw_texture_flush);
+    GMALIAS(sprite_prefetch_multi, sprite_prefetch);  // an array of sprites
+    GMALIAS(sprite_flush_multi, sprite_flush); GMREG(texture_get_uvs);
     GMREG(asset_get_tags); GMREG(asset_has_tags); GMREG(asset_has_any_tag); GMREG(asset_add_tags);
     GMREG(asset_remove_tags); GMREG(asset_clear_tags); GMREG(tag_get_assets); GMREG(tag_get_asset_ids);
 }

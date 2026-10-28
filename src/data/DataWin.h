@@ -66,6 +66,12 @@ struct Texture {
     std::string externalFile;                    // dynamic texture groups: its file next to the data
 };
 
+// A texture group (TGIN, 2.3+): its pages and the assets drawn from them.
+struct TextureGroup {
+    std::string name;
+    std::vector<int32_t> pages, sprites, fonts, tilesets;
+};
+
 // Nine-slice drawing (2.3.2+): fixed-size borders, and per slice (left, top, right, bottom,
 // centre) a tile mode: 0 stretch, 1 repeat, 2 mirror, 3 blank repeat (once, then empty), 4 hide.
 struct NineSlice {
@@ -452,6 +458,7 @@ public:
     std::vector<std::string_view> strings;
     std::vector<Texture> textures;
     std::vector<TexturePageItem> tpag;
+    std::vector<TextureGroup> textureGroups;
     // TAGS (GMS 2.3+): tag names per asset, keyed by (asset type << 24) | index.
     std::vector<std::pair<int32_t, std::vector<std::string_view>>> assetTags;
     std::vector<AnimCurve> animCurves;

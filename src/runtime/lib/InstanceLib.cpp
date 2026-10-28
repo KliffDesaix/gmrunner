@@ -834,6 +834,7 @@ GMFN(layer_tile_create) {  // (layer, x, y, sprite, left, top, width, height)
     t.width = I(6);
     t.height = I(7);
     t.depth = L ? L->depth : 0;
+    t.layer = L ? L->id : -1;
     rt.tiles.push_back(t);
     return Value(static_cast<double>(t.id));
 }
