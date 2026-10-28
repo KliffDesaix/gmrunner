@@ -1612,9 +1612,7 @@ void registerGms2Builtins(Runner& rt) {
     for (const char* n : {"steam_update", "steam_shutdown", "ds_grid_set_post", "font_enable_effects", "gc_collect",
                           "font_enable_sdf", "font_sdf_spread"})
         rt.vm.registerBuiltin(n, fn_gml_noop);
-    // Texture pages are always resident: prefetching and flushing succeed (0).
-    for (const char* n : {"gamepad_hat_value", "gamepad_hat_count", "sprite_prefetch", "sprite_prefetch_multi",
-                          "texture_prefetch", "sprite_flush", "sprite_flush_multi", "texture_flush"})
+    for (const char* n : {"gamepad_hat_value", "gamepad_hat_count"})
         rt.vm.registerBuiltin(n, fn_zero_fn);
     for (const char* n : {"steam_utils_is_steam_running_on_steam_deck", "steam_is_cloud_enabled_for_app"})
         rt.vm.registerBuiltin(n, fn_false_fn);

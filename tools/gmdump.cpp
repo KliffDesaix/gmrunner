@@ -43,6 +43,9 @@ static void info(const DataWin& dw) {
            dw.rooms.size(), dw.timelines.size(), dw.shaders.size());
     printf("code %zu, variables %zu (max locals %u), functions %zu\n", dw.code.size(), dw.variables.size(),
            dw.maxLocalVars, dw.functions.size());
+    for (auto& g : dw.textureGroups)
+        printf("texture group %s: %zu pages, %zu sprites, %zu fonts, %zu tilesets\n", g.name.c_str(), g.pages.size(),
+               g.sprites.size(), g.fonts.size(), g.tilesets.size());
     printf("room order:");
     for (int32_t r : g.roomOrder)
         printf(" %.*s", int(dw.rooms[r].name.size()), dw.rooms[r].name.data());

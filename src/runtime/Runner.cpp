@@ -508,6 +508,7 @@ void Runner::loadRoom(int32_t r, bool first) {
         savedRooms.erase(saved);
         if (gfx) gfx->onRoomStart();
         for (Instance* i : snapshot()) performEvent(i, EV_OTHER, OTHER_ROOM_START);
+        prefetchRoomTextures();
         return;
     }
 
@@ -700,6 +701,7 @@ void Runner::loadRoom(int32_t r, bool first) {
             tile.width = static_cast<int32_t>(t.w);
             tile.height = static_cast<int32_t>(t.h);
             tile.depth = L.depth;
+            tile.layer = lay.id;
             tile.xscale = t.scaleX;
             tile.yscale = t.scaleY;
             tile.blend = t.color & 0xFFFFFF;
@@ -763,10 +765,39 @@ void Runner::loadRoom(int32_t r, bool first) {
         for (Instance* i : snapshot()) performEvent(i, EV_OTHER, OTHER_GAME_START);
     if (rm.creationCode >= 0) vm.run(rm.creationCode, &globalSelf, &globalSelf);
     for (Instance* i : snapshot()) performEvent(i, EV_OTHER, OTHER_ROOM_START);
+    prefetchRoomTextures();
     if (const char* g = getenv("GMR_TRACE_GLOBAL")) {
         Value* v = vm.findGlobal(vm.varIdForName(g));
         log("[trace] after room start: global.%s = %s", g, v ? v->repr().c_str() : "<none>");
     }
+}
+
+// The texture pages the room shows at its start (instances' sprites, tiles, backgrounds and layer
+// elements), loaded together before its first frame rather than one by one as they're drawn.
+void Runner::prefetchRoomTextures() {
+    if (!gfx) return;
+    std::vector<int> pages;
+    auto addTpag = [&](int32_t t) {
+        if (t >= 0 && static_cast<size_t>(t) < dw.tpag.size()) pages.push_back(dw.tpag[t].texture);
+    };
+    auto addSprite = [&](int32_t s) {
+        if (s < 0 || static_cast<size_t>(s) >= dw.sprites.size() || dw.sprites[s].deleted) return;
+        for (int32_t t : dw.sprites[s].frames) addTpag(t);
+    };
+    auto addBackground = [&](int32_t b) {
+        if (b >= 0 && static_cast<size_t>(b) < dw.backgrounds.size()) addTpag(dw.backgrounds[b].tpag);
+    };
+    for (Instance* i : instances)
+        if (!i->destroyed) addSprite(i->sprite);
+    for (const Tile& t : tiles)  // GMS2's legacy tiles take a sprite (Graphics::drawTile)
+        if (t.visible) dw.gen.gms2 ? addSprite(t.background) : addBackground(t.background);
+    for (const RoomBackgroundState& b : backgrounds)
+        if (b.visible) addBackground(b.index);
+    for (const auto& [id, e] : layerElements) {
+        if (e.type == ElementType::Background || e.type == ElementType::Sprite) addSprite(e.sprite);
+        else if (e.type == ElementType::Tilemap) addBackground(e.tileset);
+    }
+    gfx->prefetchPages(std::move(pages));
 }
 
 // ---------------------------------------------------------------------------------------------

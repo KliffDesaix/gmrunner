@@ -268,6 +268,13 @@ public:
     const std::vector<Page>& pages() const { return pages_; }
     // A page for drawing: data.win pages are decoded and uploaded the first time they're used.
     const Page& page(int index);
+    // Loads pages ahead of drawing (room start, texture_prefetch, texturegroup_load), decoding
+    // them in parallel; within the budget, dropping pages not wanted now first.
+    void prefetchPages(std::vector<int> pages);
+    // Drops data.win pages from the GPU (texture_flush, draw_texture_flush): loaded again when drawn.
+    void flushPages(const std::vector<int>& pages);
+    void flushAllPages();
+    bool pageLoaded(int index) const;
 
 private:
     struct Glyph {
@@ -377,6 +384,9 @@ private:
     // Pages are loaded when first drawn, as GameMaker does; past the budget (devices with little
     // memory) the ones unused longest are dropped at the end of a frame, to be loaded again later.
     void loadPage(int index);
+    void uploadPage(int index, std::vector<uint8_t>& px, int w, int h, const std::string& err);
+    void dropPage(int index);
+    void dropPagesOver(size_t limit, uint64_t keepFrom);  // longest unused first, keeping recent ones
     void dropIdlePages();
     uint64_t frame_ = 1;
     size_t pageBytes_ = 0, pageBudget_ = 0;  // 0: no budget

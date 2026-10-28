@@ -204,17 +204,29 @@ GMFN(layer_hspeed) { if (Layer* L = layerArg(rt, args, argc, 0)) L->hspeed = D(1
 GMFN(layer_vspeed) { if (Layer* L = layerArg(rt, args, argc, 0)) L->vspeed = D(1); return Value(); }
 GMFN(layer_get_hspeed) { Layer* L = layerArg(rt, args, argc, 0); return Value(L ? L->hspeed : 0.0); }
 GMFN(layer_get_vspeed) { Layer* L = layerArg(rt, args, argc, 0); return Value(L ? L->vspeed : 0.0); }
+// Legacy tiles on asset layers are kept with the room's tiles; they are elements of their layer
+// too (layerelementtype_tile), after its other elements.
+static const Tile* legacyTile(Runner& rt, int32_t id) {
+    for (const Tile& t : rt.tiles)
+        if (t.id == id && t.layer >= 0) return &t;
+    return nullptr;
+}
 GMFN(layer_get_all_elements) {
     Layer* L = layerArg(rt, args, argc, 0);
-    return idList(L ? L->elements : std::vector<int32_t>());
+    if (!L) return idList({});
+    std::vector<int32_t> ids = L->elements;
+    for (const Tile& t : rt.tiles)
+        if (t.layer == L->id) ids.push_back(t.id);
+    return idList(ids);
 }
 GMFN(layer_get_element_type) {
-    LayerElement* e = rt.elementById(I(0));
-    return Value(e ? static_cast<double>(static_cast<int32_t>(e->type)) : -1.0);
+    if (LayerElement* e = rt.elementById(I(0))) return Value(static_cast<double>(static_cast<int32_t>(e->type)));
+    return Value(legacyTile(rt, I(0)) ? static_cast<double>(ElementType::Tile) : -1.0);
 }
 GMFN(layer_get_element_layer) {
-    LayerElement* e = rt.elementById(I(0));
-    return Value(e ? static_cast<double>(e->layer) : -1.0);
+    if (LayerElement* e = rt.elementById(I(0))) return Value(static_cast<double>(e->layer));
+    const Tile* t = legacyTile(rt, I(0));
+    return Value(t ? static_cast<double>(t->layer) : -1.0);
 }
 GMFN(layer_instance_get_instance) {
     LayerElement* e = elementOf(rt, args, argc, 0, ElementType::Instance);

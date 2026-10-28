@@ -567,7 +567,7 @@ void registerDrawBuiltins(Runner& rt) {
                           "steam_activate_overlay", "achievement_post", "achievement_increment",
                           "display_set_timing_method", "display_set_windows_alternate_sync", "display_set_windows_vertex_buffer_method",
                           "display_set_sleep_margin", "display_set_ui_visibility", "os_lock_orientation", "os_powersave_enable", "window_enable_borderless_fullscreen", "texture_set_repeat",
-                          "draw_texture_flush", "draw_flush", "window_set_min_width", "window_set_min_height",
+                          "draw_flush", "window_set_min_width", "window_set_min_height",
                           "window_set_max_width", "window_set_max_height", "audio_channel_num",
                           // debug overlay
                           "dbg_view_delete", "dbg_section_delete", "dbg_button", "dbg_checkbox", "dbg_text",

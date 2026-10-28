@@ -58,12 +58,9 @@ static size_t textureBudget() {
     return total && total <= (2ull << 30) ? static_cast<size_t>(total / 4) : 0;
 }
 
-void Graphics::loadPage(int index) {
+void Graphics::uploadPage(int index, std::vector<uint8_t>& px, int w, int h, const std::string& err) {
     Page& p = pages_[index];
-    std::vector<uint8_t> px;
-    int w = 0, h = 0;
-    std::string err;
-    if (!decodeTexture(rt_.dw.textures[index], px, w, h, err, rt_.gameDir)) {
+    if (px.empty()) {
         rt_.log("[gfx] cannot decode texture page %d: %s", index, err.c_str());
         p.failed = true;
         return;
@@ -75,27 +72,138 @@ void Graphics::loadPage(int index) {
     pageBytes_ += static_cast<size_t>(w) * h * 4;
 }
 
+void Graphics::loadPage(int index) {
+    std::vector<uint8_t> px;
+    int w = 0, h = 0;
+    std::string err;
+    if (!decodeTexture(rt_.dw.textures[index], px, w, h, err, rt_.gameDir)) px.clear();
+    uploadPage(index, px, w, h, err);
+}
+
 const Graphics::Page& Graphics::page(int index) {
     Page& p = pages_[index];
     p.lastUsed = frame_;
-    if (enabled_ && !p.tex && !p.failed && static_cast<size_t>(index) < rt_.dw.textures.size()) loadPage(index);
+    if (enabled_ && !p.tex && !p.failed && static_cast<size_t>(index) < rt_.dw.textures.size()) {
+        if (rt_.debugTrace) rt_.log("[gfx] loading texture page %d to draw", index);
+        loadPage(index);
+    }
     return p;
+}
+
+void Graphics::dropPagesOver(size_t limit, uint64_t keepFrom) {
+    r_.flush();  // nothing queued may still draw from a dropped page
+    while (pageBytes_ > limit) {
+        Page* oldest = nullptr;
+        for (size_t i = 0; i < rt_.dw.textures.size(); i++) {
+            Page& p = pages_[i];
+            if (p.tex && p.lastUsed < keepFrom && (!oldest || p.lastUsed < oldest->lastUsed)) oldest = &p;
+        }
+        if (!oldest) break;
+        dropPage(static_cast<int>(oldest - pages_.data()));
+    }
+}
+
+void Graphics::dropPage(int index) {
+    Page& p = pages_[index];
+    if (!p.tex || static_cast<size_t>(index) >= rt_.dw.textures.size()) return;  // run-time pages stay
+    if (rt_.debugTrace) rt_.log("[gfx] dropped texture page %d", index);
+    r_.deleteTexture(p.tex);
+    p.tex = 0;
+    pageBytes_ -= static_cast<size_t>(p.w) * p.h * 4;
 }
 
 void Graphics::dropIdlePages() {
     frame_++;
-    while (pageBudget_ && pageBytes_ > pageBudget_) {
-        Page* oldest = nullptr;
-        for (size_t i = 0; i < rt_.dw.textures.size(); i++) {
-            Page& p = pages_[i];
-            if (p.tex && p.lastUsed + 1 < frame_ && (!oldest || p.lastUsed < oldest->lastUsed)) oldest = &p;
-        }
-        if (!oldest) break;  // everything left was drawn this frame
-        if (rt_.debugTrace) rt_.log("[gfx] dropped texture page %d", static_cast<int>(oldest - pages_.data()));
-        r_.deleteTexture(oldest->tex);
-        oldest->tex = 0;
-        pageBytes_ -= static_cast<size_t>(oldest->w) * oldest->h * 4;
+    // Pages drawn in the frame just shown stay.
+    if (pageBudget_ && pageBytes_ > pageBudget_) dropPagesOver(pageBudget_, frame_ - 1);
+}
+
+void Graphics::prefetchPages(std::vector<int> want) {
+    if (!enabled_) return;
+    std::sort(want.begin(), want.end());
+    want.erase(std::unique(want.begin(), want.end()), want.end());
+    std::vector<int> load;
+    size_t bytes = 0;
+    for (int i : want) {
+        if (i < 0 || static_cast<size_t>(i) >= rt_.dw.textures.size()) continue;
+        Page& p = pages_[i];
+        p.lastUsed = frame_;
+        if (p.tex || p.failed) continue;
+        size_t b = static_cast<size_t>(p.w) * p.h * 4;
+        if (pageBudget_ && bytes + b > pageBudget_) continue;  // the rest load when drawn
+        bytes += b;
+        load.push_back(i);
     }
+    if (load.empty()) return;
+    if (rt_.debugTrace) rt_.log("[gfx] prefetching %zu texture pages (%zu MB)", load.size(), bytes >> 20);
+    // Room for them: pages not wanted now go first, longest unused first.
+    if (pageBudget_ && pageBytes_ + bytes > pageBudget_) dropPagesOver(pageBudget_ - bytes, frame_);
+    // Decoded on worker threads a few at a time (decoding is most of the cost on slow CPUs, and
+    // small batches keep few decoded pages in memory at once), uploaded here.
+#ifdef __SWITCH__
+    size_t workers = 3;  // the application's cores (0-2)
+#else
+    size_t workers = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
+#endif
+    struct Decoded {
+        std::vector<uint8_t> px;
+        int w = 0, h = 0;
+        std::string err;
+    };
+    for (size_t first = 0; first < load.size(); first += workers) {
+        size_t n = std::min(workers, load.size() - first);
+        std::vector<Decoded> batch(n);
+        auto decode = [&](size_t k) {
+            Decoded& d = batch[k];
+            if (!decodeTexture(rt_.dw.textures[load[first + k]], d.px, d.w, d.h, d.err, rt_.gameDir)) d.px.clear();
+        };
+#ifdef __SWITCH__
+        // libnx's pthreads all start on the caller's core; pin the workers to the other cores.
+        struct Job {
+            decltype(decode)* fn;
+            size_t k;
+        };
+        std::vector<Job> jobs(n);
+        std::vector<Thread> threads(n);
+        std::vector<bool> started(n, false);
+        for (size_t k = 1; k < n; k++) {
+            jobs[k] = {&decode, k};
+            int core = static_cast<int>(k % 3);
+            if (core == static_cast<int>(svcGetCurrentProcessorNumber())) core = (core + 1) % 3;
+            started[k] = R_SUCCEEDED(threadCreate(&threads[k], [](void* a) {
+                Job* j = static_cast<Job*>(a);
+                (*j->fn)(j->k);
+            }, &jobs[k], nullptr, 0x40000, 0x2C, core)) && R_SUCCEEDED(threadStart(&threads[k]));
+            if (!started[k]) decode(k);
+        }
+        decode(0);
+        for (size_t k = 1; k < n; k++)
+            if (started[k]) threadWaitForExit(&threads[k]), threadClose(&threads[k]);
+#else
+        std::vector<std::thread> threads;
+        for (size_t k = 1; k < n; k++) threads.emplace_back(decode, k);
+        decode(0);
+        for (auto& t : threads) t.join();
+#endif
+        for (size_t k = 0; k < n; k++) uploadPage(load[first + k], batch[k].px, batch[k].w, batch[k].h, batch[k].err);
+    }
+}
+
+void Graphics::flushPages(const std::vector<int>& pages) {
+    if (!enabled_) return;
+    r_.flush();
+    for (int i : pages)
+        if (i >= 0 && static_cast<size_t>(i) < pages_.size()) dropPage(i);
+}
+
+void Graphics::flushAllPages() {
+    if (!enabled_) return;
+    r_.flush();
+    for (size_t i = 0; i < pages_.size(); i++) dropPage(static_cast<int>(i));
+}
+
+bool Graphics::pageLoaded(int index) const {
+    return index >= 0 && static_cast<size_t>(index) < pages_.size() && (pages_[index].tex || !enabled_);
 }
 
 void Graphics::init(bool enabled) {
