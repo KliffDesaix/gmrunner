@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdio>
 #include <thread>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #ifdef __SWITCH__
 #include <switch.h>
@@ -40,74 +43,71 @@ namespace gm {
 Graphics::Graphics(Runner& rt) : rt_(rt) {}
 Graphics::~Graphics() = default;
 
+// How much texture memory pages may keep before idle ones are dropped: GMR_TEXTURE_BUDGET_MB, or
+// a quarter of the memory on devices with 2 GB or less (handhelds, where the GPU shares it).
+static size_t textureBudget() {
+    if (const char* e = getenv("GMR_TEXTURE_BUDGET_MB")) return static_cast<size_t>(std::max(0L, atol(e))) << 20;
+    uint64_t total = 0;
+#ifdef __SWITCH__
+    u64 v = 0;
+    if (R_SUCCEEDED(svcGetInfo(&v, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0))) total = v;
+#elif defined(_SC_PHYS_PAGES)
+    long pages = sysconf(_SC_PHYS_PAGES), size = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && size > 0) total = static_cast<uint64_t>(pages) * static_cast<uint64_t>(size);
+#endif
+    return total && total <= (2ull << 30) ? static_cast<size_t>(total / 4) : 0;
+}
+
+void Graphics::loadPage(int index) {
+    Page& p = pages_[index];
+    std::vector<uint8_t> px;
+    int w = 0, h = 0;
+    std::string err;
+    if (!decodeTexture(rt_.dw.textures[index], px, w, h, err, rt_.gameDir)) {
+        rt_.log("[gfx] cannot decode texture page %d: %s", index, err.c_str());
+        p.failed = true;
+        return;
+    }
+    p.w = w;
+    p.h = h;
+    if (!enabled_) return;
+    p.tex = r_.createTexture(w, h, px.data());
+    pageBytes_ += static_cast<size_t>(w) * h * 4;
+}
+
+const Graphics::Page& Graphics::page(int index) {
+    Page& p = pages_[index];
+    p.lastUsed = frame_;
+    if (enabled_ && !p.tex && !p.failed && static_cast<size_t>(index) < rt_.dw.textures.size()) loadPage(index);
+    return p;
+}
+
+void Graphics::dropIdlePages() {
+    frame_++;
+    while (pageBudget_ && pageBytes_ > pageBudget_) {
+        Page* oldest = nullptr;
+        for (size_t i = 0; i < rt_.dw.textures.size(); i++) {
+            Page& p = pages_[i];
+            if (p.tex && p.lastUsed + 1 < frame_ && (!oldest || p.lastUsed < oldest->lastUsed)) oldest = &p;
+        }
+        if (!oldest) break;  // everything left was drawn this frame
+        if (rt_.debugTrace) rt_.log("[gfx] dropped texture page %d", static_cast<int>(oldest - pages_.data()));
+        r_.deleteTexture(oldest->tex);
+        oldest->tex = 0;
+        pageBytes_ -= static_cast<size_t>(oldest->w) * oldest->h * 4;
+    }
+}
+
 void Graphics::init(bool enabled) {
     enabled_ = enabled;
     r_.init(enabled, rt_.glES);
     const DataWin& dw = rt_.dw;
     pages_.resize(dw.textures.size());
-    // Pages are decoded (PNG / QOI / bzip2) on worker threads a few at a time, then uploaded
-    // here: decoding is most of the start-up time on slow CPUs, and batches keep only a few
-    // decoded pages in memory at once.
-    struct Decoded {
-        std::vector<uint8_t> px;
-        int w = 0, h = 0;
-        bool ok = false;
-        std::string err;
-    };
-#ifdef __SWITCH__
-    size_t workers = 3;  // the application's cores (0-2)
-#else
-    size_t workers = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
-#endif
-    for (size_t first = 0; first < dw.textures.size(); first += workers) {
-        size_t n = std::min(workers, dw.textures.size() - first);
-        std::vector<Decoded> batch(n);
-        auto decode = [&](size_t k) {
-            Decoded& d = batch[k];
-            d.ok = decodeTexture(dw.textures[first + k], d.px, d.w, d.h, d.err, rt_.gameDir);
-        };
-#ifdef __SWITCH__
-        // libnx's pthreads all start on the caller's core; pin the workers to the other cores.
-        struct Job {
-            decltype(decode)* fn;
-            size_t k;
-        };
-        std::vector<Job> jobs(n);
-        std::vector<Thread> threads(n);
-        std::vector<bool> started(n, false);
-        for (size_t k = 1; k < n; k++) {
-            jobs[k] = {&decode, k};
-            int core = static_cast<int>(k % 3);
-            if (core == static_cast<int>(svcGetCurrentProcessorNumber())) core = (core + 1) % 3;
-            started[k] = R_SUCCEEDED(threadCreate(&threads[k], [](void* a) {
-                Job* j = static_cast<Job*>(a);
-                (*j->fn)(j->k);
-            }, &jobs[k], nullptr, 0x40000, 0x2C, core)) && R_SUCCEEDED(threadStart(&threads[k]));
-            if (!started[k]) decode(k);
-        }
-        decode(0);
-        for (size_t k = 1; k < n; k++)
-            if (started[k]) threadWaitForExit(&threads[k]), threadClose(&threads[k]);
-#else
-        std::vector<std::thread> threads;
-        for (size_t k = 1; k < n; k++) threads.emplace_back(decode, k);
-        decode(0);
-        for (auto& t : threads) t.join();
-#endif
-        for (size_t k = 0; k < n; k++) {
-            Decoded& d = batch[k];
-            if (!d.ok) {
-                rt_.log("[gfx] cannot decode texture page %zu: %s", first + k, d.err.c_str());
-                continue;
-            }
-            Page& p = pages_[first + k];
-            p.w = d.w;
-            p.h = d.h;
-            p.tex = r_.createTexture(d.w, d.h, d.px.data());
-            // Keep pixels on the CPU only when there's no GPU copy; fonts re-decode pages on demand.
-            if (!enabled) p.pixels = std::move(d.px);
-        }
-    }
+    // Only the pages' sizes now (sprite UVs need them); their pixels when first drawn.
+    for (size_t i = 0; i < dw.textures.size(); i++)
+        if (!textureSize(dw.textures[i], pages_[i].w, pages_[i].h, rt_.gameDir)) loadPage(static_cast<int>(i));
+    pageBudget_ = textureBudget();
+    if (pageBudget_) rt_.log("[gfx] texture budget %zu MB", pageBudget_ >> 20);
     int ok = 0;
     for (auto& s : dw.shaders) {
         std::vector<std::string> attrs;
@@ -479,7 +479,7 @@ void Graphics::drawTpag(int tpag, double x, double y, double ox, double oy, doub
     if (tpag < 0 || static_cast<size_t>(tpag) >= rt_.dw.tpag.size()) return;
     const TexturePageItem& t = rt_.dw.tpag[tpag];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     drawTexRect(p.tex, p.w, p.h, t.srcX, t.srcY, t.srcW, t.srcH, t.tgtX - ox, t.tgtY - oy, t.tgtW, t.tgtH, x, y, xs,
                 ys, rot, col, a);
 }
@@ -489,7 +489,7 @@ void Graphics::drawTpagPart(int tpag, double left, double top, double w, double 
     if (tpag < 0 || static_cast<size_t>(tpag) >= rt_.dw.tpag.size()) return;
     const TexturePageItem& t = rt_.dw.tpag[tpag];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     double ix0 = std::max(left, static_cast<double>(t.tgtX));
     double iy0 = std::max(top, static_cast<double>(t.tgtY));
     double ix1 = std::min(left + w, static_cast<double>(t.tgtX + t.tgtW));
@@ -529,7 +529,7 @@ void Graphics::drawNineSlice(int sprite, int tpag, double x, double y, double w,
     if (tpag < 0 || static_cast<size_t>(tpag) >= rt_.dw.tpag.size() || !s.width || !s.height) return;
     const TexturePageItem& t = rt_.dw.tpag[tpag];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     double fx = w < 0 ? -1 : 1, fy = h < 0 ? -1 : 1;
     w = std::fabs(w);
     h = std::fabs(h);
@@ -610,7 +610,7 @@ void Graphics::drawSpriteGeneral(int sprite, double subimg, double left, double 
     if (tp < 0 || static_cast<size_t>(tp) >= rt_.dw.tpag.size()) return;
     const TexturePageItem& t = rt_.dw.tpag[tp];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     double ix0 = std::max(left, static_cast<double>(t.tgtX));
     double iy0 = std::max(top, static_cast<double>(t.tgtY));
     double ix1 = std::min(left + w, static_cast<double>(t.tgtX + t.tgtW));
@@ -650,7 +650,7 @@ void Graphics::drawTpagTriangles(int tpag, const float* xy, const float* uv, int
     if (tpag < 0 || static_cast<size_t>(tpag) >= rt_.dw.tpag.size()) return;
     const TexturePageItem& t = rt_.dw.tpag[tpag];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     if (p.w <= 0 || p.h <= 0) return;
     r_.setTexture(p.tex);
     uint32_t c = packColor(col, a);
@@ -885,7 +885,7 @@ void Graphics::primitiveBegin(int kind, int texture) {
     prim_.clear();
 }
 
-bool Graphics::textureInfo(double handle, uint32_t& tex, int& w, int& h) const {
+bool Graphics::textureInfo(double handle, uint32_t& tex, int& w, int& h) {
     int id = static_cast<int>(handle);
     if (id >= kSurfaceTexBase) {
         int sid = id - kSurfaceTexBase;
@@ -896,7 +896,7 @@ bool Graphics::textureInfo(double handle, uint32_t& tex, int& w, int& h) const {
         h = r_.targetHeight(t);
         return true;
     }
-    if (id < 0 || static_cast<size_t>(id) >= pages_.size() || !pages_[id].tex) return false;
+    if (id < 0 || static_cast<size_t>(id) >= pages_.size() || !page(id).tex) return false;
     tex = pages_[id].tex;
     w = pages_[id].w;
     h = pages_[id].h;
@@ -938,7 +938,7 @@ void Graphics::drawSpritePos(int sprite, double subimg, const double (&px)[4], c
     double uv[8];
     if (!spriteUVs(sprite, subimg, uv)) return;
     uint32_t c = packColor(0xFFFFFF, std::min(1.0, a));
-    drawQuad(pages_[spriteTexture(sprite, subimg)].tex, px, py, uv[0], uv[1], uv[2], uv[3], {c, c, c, c});
+    drawQuad(page(spriteTexture(sprite, subimg)).tex, px, py, uv[0], uv[1], uv[2], uv[3], {c, c, c, c});
 }
 
 void Graphics::drawSpriteAffine(int sprite, double subimg, const double (&m)[6], uint32_t col, double a) {
@@ -954,7 +954,7 @@ void Graphics::drawSpriteAffine(int sprite, double subimg, const double (&m)[6],
     }
     const TexturePageItem& t = rt_.dw.tpag[tp];
     if (t.texture < 0 || static_cast<size_t>(t.texture) >= pages_.size()) return;
-    const Page& p = pages_[t.texture];
+    const Page& p = page(t.texture);
     if (p.w <= 0 || p.h <= 0) return;
     const double lx[4] = {double(t.tgtX), double(t.tgtX + t.tgtW), double(t.tgtX + t.tgtW), double(t.tgtX)};
     const double ly[4] = {double(t.tgtY), double(t.tgtY), double(t.tgtY + t.tgtH), double(t.tgtY + t.tgtH)};
@@ -1360,7 +1360,7 @@ void Graphics::drawText(double x, double y, const std::string& s, double sep, do
                 const auto& gl = df->glyphs[g.dataIndex];
                 const TexturePageItem& t = rt_.dw.tpag[df->tpag];
                 if (t.texture >= 0 && static_cast<size_t>(t.texture) < pages_.size()) {
-                    const Page& p = pages_[t.texture];
+                    const Page& p = page(t.texture);
                     drawTexRect(p.tex, p.w, p.h, t.srcX + gl.x, t.srcY + gl.y, gl.w, gl.h, g.offset, 0, gl.w, gl.h,
                                 wx, wy, xs, ys, rot, c1, a);
                 }
@@ -1936,6 +1936,7 @@ void Graphics::present(int screenW, int screenH) {
     r_.setFiltering(false);
     setAlphaBlend(ab);
     r_.setShader(sh);
+    dropIdlePages();
 }
 
 void Graphics::screenToWindow(double sx, double sy, double& wx, double& wy) const {

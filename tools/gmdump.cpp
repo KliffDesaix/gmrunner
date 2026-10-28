@@ -125,9 +125,10 @@ static int room(const DataWin& dw, const std::string& want) {
         printf("  flags 0x%x%s\n", r.flags, r.flags & 1 ? " (views enabled)" : "");
         for (size_t v = 0; v < r.views.size(); v++)
             if (r.views[v].enabled)
-                printf("  view %zu: view %d,%d %dx%d port %d,%d %dx%d follow %d\n", v, r.views[v].viewX, r.views[v].viewY,
+                printf("  view %zu: view %d,%d %dx%d port %d,%d %dx%d follow %d border %d,%d speed %d,%d\n", v, r.views[v].viewX, r.views[v].viewY,
                        r.views[v].viewW, r.views[v].viewH, r.views[v].portX, r.views[v].portY, r.views[v].portW,
-                       r.views[v].portH, r.views[v].follow);
+                       r.views[v].portH, r.views[v].follow,
+                       r.views[v].borderX, r.views[v].borderY, r.views[v].speedX, r.views[v].speedY);
         static const char* kTypes[] = {"path", "background", "instances", "assets", "tiles", "?", "effect"};
         for (auto& L : r.layers) {
             uint32_t t = static_cast<uint32_t>(L.type);

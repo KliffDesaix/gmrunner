@@ -232,7 +232,7 @@ public:
     // GML texture handles (sprite_get_texture, surface_get_texture): a texture page index, or
     // kSurfaceTexBase + surface id; -1 is "no texture".
     static constexpr int kSurfaceTexBase = 1 << 20;
-    bool textureInfo(double handle, uint32_t& tex, int& w, int& h) const;
+    bool textureInfo(double handle, uint32_t& tex, int& w, int& h);
     int spriteTexture(int sprite, double subimg) const;
     // sprite_get_uvs: page UVs (left, top, right, bottom), trimmed x/y offset, kept width/height ratio.
     bool spriteUVs(int sprite, double subimg, double (&out)[8]) const;
@@ -262,8 +262,12 @@ public:
         int w = 0, h = 0;
         std::vector<uint8_t> pixels;
         uint32_t tex = 0;
+        uint64_t lastUsed = 0;  // frame it was last drawn from
+        bool failed = false;    // couldn't be decoded: not tried again
     };
     const std::vector<Page>& pages() const { return pages_; }
+    // A page for drawing: data.win pages are decoded and uploaded the first time they're used.
+    const Page& page(int index);
 
 private:
     struct Glyph {
@@ -370,6 +374,12 @@ private:
     bool defaultFontTried_ = false;
     bool enabled_ = false;
     std::vector<Page> pages_;
+    // Pages are loaded when first drawn, as GameMaker does; past the budget (devices with little
+    // memory) the ones unused longest are dropped at the end of a frame, to be loaded again later.
+    void loadPage(int index);
+    void dropIdlePages();
+    uint64_t frame_ = 1;
+    size_t pageBytes_ = 0, pageBudget_ = 0;  // 0: no budget
     uint32_t particleShapes_[14] = {};
     std::vector<FontRec> fonts_;
     std::vector<int> surfaces_;  // GML surface id -> renderer target (-1 when freed)

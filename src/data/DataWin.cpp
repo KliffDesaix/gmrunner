@@ -6,10 +6,35 @@
 #include <functional>
 #include <stdexcept>
 #include <unordered_set>
+#if (defined(__unix__) || defined(__APPLE__)) && !defined(__SWITCH__)
+#define GMR_MMAP 1
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace gm {
 
 std::unique_ptr<DataWin> DataWin::load(const std::string& path) {
+#ifdef GMR_MMAP
+    int fd = open(path.c_str(), O_RDONLY);
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && st.st_size > 0) {
+        void* m = mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+        close(fd);
+        if (m != MAP_FAILED) {
+            auto dw = std::unique_ptr<DataWin>(new DataWin());
+            dw->mapped_ = m;
+            dw->mappedSize_ = static_cast<size_t>(st.st_size);
+            dw->r_ = Reader(static_cast<const uint8_t*>(m), dw->mappedSize_);
+            dw->parse();
+            return dw;
+        }
+    } else if (fd >= 0) {
+        close(fd);
+    }
+#endif
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) throw FormatError("cannot open " + path);
     std::vector<uint8_t> buf(static_cast<size_t>(f.tellg()));
@@ -24,6 +49,12 @@ std::unique_ptr<DataWin> DataWin::fromBuffer(std::vector<uint8_t> buffer) {
     dw->r_ = Reader(dw->buf_.data(), dw->buf_.size());
     dw->parse();
     return dw;
+}
+
+DataWin::~DataWin() {
+#ifdef GMR_MMAP
+    if (mapped_) munmap(mapped_, mappedSize_);
+#endif
 }
 
 std::string DataWin::engineVersion() const {

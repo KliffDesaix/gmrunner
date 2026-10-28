@@ -235,7 +235,16 @@ Audio::~Audio() {
 Audio::Asset* Audio::asset(int sound) {
     if (sound < 0 || static_cast<size_t>(sound) >= assets_.size()) return nullptr;
     Asset& a = assets_[sound];
-    if (static_cast<size_t>(sound) >= rt_.dw.sounds.size()) return &a;  // audio_create_stream
+    if (static_cast<size_t>(sound) >= rt_.dw.sounds.size()) {  // audio_create_stream
+        // Released while idle (update): read the file again. A destroyed stream stays empty.
+        size_t i = static_cast<size_t>(sound) - rt_.dw.sounds.size();
+        if (!a.tried && i < streamNames_.size()) {
+            a.tried = true;
+            auto data = std::make_shared<std::vector<uint8_t>>();
+            if (readFile(streamNames_[i], *data)) a.file = std::move(data);
+        }
+        return &a;
+    }
     const Sound& s = rt_.dw.sounds[sound];
     if (!a.configured) {
         a.configured = true;
@@ -458,6 +467,9 @@ int Audio::play(int sound, double priority, bool loop, const PlayParams& params)
         rt_.log("[audio] play %.*s%s from %s (%.1fs)", int(s.name.size()), s.name.data(), loop ? " (loop)" : "",
                 a.pcmBytes ? "data.win" : std::string(s.file).c_str(),
                 src->rate ? static_cast<double>(src->length) / src->rate : 0.0);
+    } else if (rt_.debugTrace) {
+        size_t i = static_cast<size_t>(sound) - rt_.dw.sounds.size();
+        rt_.log("[audio] play stream %s%s", i < streamNames_.size() ? streamNames_[i].c_str() : "?", loop ? " (loop)" : "");
     }
     auto v = std::make_unique<Voice>();
     v->sound = sound;

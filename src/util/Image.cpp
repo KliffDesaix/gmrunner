@@ -94,6 +94,27 @@ bool decodeQoi(const uint8_t* d, size_t n, std::vector<uint8_t>& rgba, int& w, i
 
 }  // namespace
 
+static bool headerSize(const uint8_t* d, size_t n, int& w, int& h) {
+    if (n >= 24 && std::memcmp(d, "\x89PNG", 4) == 0) {  // IHDR: big-endian width, height
+        w = (d[16] << 24) | (d[17] << 16) | (d[18] << 8) | d[19];
+        h = (d[20] << 24) | (d[21] << 16) | (d[22] << 8) | d[23];
+        return w > 0 && h > 0;
+    }
+    if (n >= 8 && (std::memcmp(d, "fioq", 4) == 0 || std::memcmp(d, "2zoq", 4) == 0)) {
+        w = d[4] | (d[5] << 8);
+        h = d[6] | (d[7] << 8);
+        return w > 0 && h > 0;
+    }
+    return false;
+}
+
+bool textureSize(const Texture& t, int& w, int& h, const std::string& gameDir) {
+    if (t.data) return headerSize(t.data, t.size, w, h);
+    std::vector<uint8_t> head;
+    return !t.externalFile.empty() && readFile(gameDir + "/" + t.externalFile, head, 0, 24) &&
+           headerSize(head.data(), head.size(), w, h);
+}
+
 bool decodeTexture(const Texture& t, std::vector<uint8_t>& rgba, int& w, int& h, std::string& error,
                    const std::string& gameDir) {
     if (!t.data) {
