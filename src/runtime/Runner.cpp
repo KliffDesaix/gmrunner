@@ -1213,6 +1213,14 @@ void Runner::doAnimation() {
     }
 }
 
+// One axis of a view following its target (YoYo's CCamera::Update): a border of half the view or
+// more centres the target, otherwise the view moves just enough to keep it that far from the edge.
+static void followTarget(double at, double pos, double size, double border, double& out) {
+    if (2 * border >= size) out = at - size / 2;
+    else if (at - border < pos) out = at - border;
+    else if (at + border > pos + size) out = at + border - size;
+}
+
 void Runner::updateViews() {
     if (!viewsEnabled) return;
     // Only the cameras of visible views follow their target (YoYo: pCam.Update() per view).
@@ -1226,10 +1234,8 @@ void Runner::updateViews() {
         Instance* t = c.object >= 100000 ? findById(c.object) : firstOf(c.object);
         if (!t) continue;
         double nx = c.x, ny = c.y;
-        if (t->x - c.x < c.hborder) nx = t->x - c.hborder;
-        if (c.x + c.w - t->x < c.hborder) nx = t->x + c.hborder - c.w;
-        if (t->y - c.y < c.vborder) ny = t->y - c.vborder;
-        if (c.y + c.h - t->y < c.vborder) ny = t->y + c.vborder - c.h;
+        followTarget(std::floor(t->x), c.x, c.w, c.hborder, nx);
+        followTarget(std::floor(t->y), c.y, c.h, c.vborder, ny);
         nx = std::max(0.0, std::min(nx, roomWidth - c.w));
         ny = std::max(0.0, std::min(ny, roomHeight - c.h));
         if (c.hspeed >= 0) nx = c.x + std::max(-c.hspeed, std::min(c.hspeed, nx - c.x));
@@ -1243,10 +1249,8 @@ void Runner::updateViews() {
         Instance* t = v.object >= 100000 ? findById(v.object) : firstOf(v.object);
         if (!t) continue;
         double nx = v.xview, ny = v.yview;
-        if (t->x - v.xview < v.hborder) nx = t->x - v.hborder;
-        if (v.xview + v.wview - t->x < v.hborder) nx = t->x + v.hborder - v.wview;
-        if (t->y - v.yview < v.vborder) ny = t->y - v.vborder;
-        if (v.yview + v.hview - t->y < v.vborder) ny = t->y + v.vborder - v.hview;
+        followTarget(std::floor(t->x), v.xview, v.wview, v.hborder, nx);
+        followTarget(std::floor(t->y), v.yview, v.hview, v.vborder, ny);
         nx = std::max(0.0, std::min(nx, roomWidth - v.wview));
         ny = std::max(0.0, std::min(ny, roomHeight - v.hview));
         if (v.hspeed >= 0) nx = v.xview + std::max(-v.hspeed, std::min(v.hspeed, nx - v.xview));

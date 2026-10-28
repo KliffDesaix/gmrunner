@@ -983,6 +983,28 @@ GMFN(action_set_motion) {
     }
     return Value();
 }
+// "Move fixed": one of the directions marked in a 9-character string laid out like a number pad
+// (down-left, down, down-right, left, stop, right, up-left, up, up-right), picked at random.
+GMFN(action_move) {
+    if (!self) return Value();
+    static const double kDirs[9] = {225, 270, 315, 180, -1, 0, 135, 90, 45};
+    std::string dirs = S(0);
+    int marked[9], n = 0;
+    for (int i = 0; i < 9 && i < static_cast<int>(dirs.size()); i++)
+        if (dirs[i] == '1') marked[n++] = i;
+    if (n == 0) return Value();
+    int pick = marked[std::min(n - 1, static_cast<int>(rt.rng.next() * n))];
+    if (kDirs[pick] < 0) self->setSpeedDir(0, self->direction);
+    else self->setSpeedDir(g_relative ? self->speed + D(1) : D(1), kDirs[pick]);
+    return Value();
+}
+// "Move towards": head for (x, y) at a speed; relative takes the point from the instance.
+GMFN(action_move_point) {
+    if (!self) return Value();
+    double tx = g_relative ? self->x + D(0) : D(0), ty = g_relative ? self->y + D(1) : D(1);
+    self->setSpeedDir(D(2), std::atan2(-(ty - self->y), tx - self->x) * 180.0 / M_PI);
+    return Value();
+}
 GMFN(action_move_to) {
     if (!self) return Value();
     self->x = g_relative ? self->x + D(0) : D(0);
@@ -1019,7 +1041,7 @@ void registerActionBuiltins(Runner& rt) {
     GMREG(action_set_relative); GMREG(action_kill_object); GMREG(action_if_variable); GMREG(action_if_number);
     GMREG(action_if); GMREG(action_create_object); GMREG(action_create_object_motion); GMREG(action_set_alarm);
     GMREG(action_sprite_set); GMREG(action_set_hspeed); GMREG(action_set_vspeed); GMREG(action_set_friction);
-    GMREG(action_set_gravity); GMREG(action_set_motion); GMREG(action_move_to); GMREG(action_reverse_xdir);
+    GMREG(action_set_gravity); GMREG(action_set_motion); GMREG(action_move); GMREG(action_move_point); GMREG(action_move_to); GMREG(action_reverse_xdir);
     GMREG(action_reverse_ydir); GMREG(action_sound); GMREG(action_another_room); GMREG(action_next_room);
     GMREG(action_previous_room); GMREG(action_current_room); GMREG(action_end_game); GMREG(action_restart_game);
     GMREG(action_execute_script);

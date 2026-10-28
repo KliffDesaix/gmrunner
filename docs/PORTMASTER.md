@@ -92,8 +92,10 @@ right stick set `mouse_stick = left` in the game's `gmrunner.ini`.
 These devices are much slower than a PC or a Switch. The runner interprets the game's bytecode
 like GameMaker's own VM runner, so small 2D games run well on an H700 (RG35XX family) or RK3566
 (RG353, RGB30) device. Heavy games, or games that rely on many surfaces and shaders, may not
-reach full speed; RK3326 devices (RG351, R36S) are the slowest. Memory is usually 1 GB, so very
-large games may not fit.
+reach full speed; RK3326 devices (RG351, R36S) are the slowest. Memory is usually 1 GB: texture
+pages are loaded when a game first draws from them, and on devices with 2 GB or less the ones
+unused longest are dropped again past a quarter of the memory (`GMR_TEXTURE_BUDGET_MB` in
+`gmRunner.sh` sets another limit). Very large games may still not fit.
 
 ## Not supported yet
 

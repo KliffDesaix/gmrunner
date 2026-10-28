@@ -433,6 +433,9 @@ class DataWin {
 public:
     static std::unique_ptr<DataWin> load(const std::string& path);
     static std::unique_ptr<DataWin> fromBuffer(std::vector<uint8_t> buffer);
+    ~DataWin();
+    DataWin(const DataWin&) = delete;
+    DataWin& operator=(const DataWin&) = delete;
 
     const Reader& reader() const { return r_; }
     // False when the file is from a GameMaker version the runner can't run; only the header,
@@ -532,7 +535,12 @@ private:
         for (uint32_t i = 0; i < n; i++) f(i, r_.u32(o + 4 + i * 4));
     }
 
+    DataWin() = default;
     std::vector<uint8_t> buf_;
+    // Or the file mapped read-only (POSIX): the system can drop its pages under memory pressure
+    // and read them back, where a copy would stay resident.
+    void* mapped_ = nullptr;
+    size_t mappedSize_ = 0;
     Reader r_;
     std::string unsupported_;
     std::unordered_map<std::string, ChunkInfo> chunks_;
