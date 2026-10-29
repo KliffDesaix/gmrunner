@@ -1488,12 +1488,6 @@ GMFN(mp_grid_path) {
 // ---------------------------------------------------------------------------------------------
 // Misc
 
-GMFN(audio_group_stop_all) {
-    int group = I(0);
-    for (size_t s = 0; s < rt.dw.sounds.size(); s++)
-        if (rt.dw.sounds[s].group == group) rt.audio->stop(static_cast<int>(s));
-    return Value();
-}
 GMFN(file_copy) {
     std::ifstream in(rt.files->readPath(S(0)), std::ios::binary);
     if (!in) return Value();
@@ -1529,7 +1523,6 @@ GMFN(string_split) {
     }
     return arr;
 }
-GMFN(zero_fn) { return Value(0.0); }
 GMFN(false_fn) { return boolV(false); }
 
 void registerGms2Builtins(Runner& rt) {
@@ -1607,13 +1600,11 @@ void registerGms2Builtins(Runner& rt) {
    
    
    
-    GMREG(audio_group_stop_all); GMREG(file_copy); GMREG(string_trim); GMREG(string_starts_with);
+    GMREG(file_copy); GMREG(string_trim); GMREG(string_starts_with);
     GMREG(string_ends_with); GMREG(string_split);
-    for (const char* n : {"steam_update", "steam_shutdown", "ds_grid_set_post", "font_enable_effects", "gc_collect",
+    for (const char* n : {"steam_update", "steam_shutdown", "ds_grid_set_post", "font_enable_effects",
                           "font_enable_sdf", "font_sdf_spread"})
         rt.vm.registerBuiltin(n, fn_gml_noop);
-    for (const char* n : {"gamepad_hat_value", "gamepad_hat_count"})
-        rt.vm.registerBuiltin(n, fn_zero_fn);
     for (const char* n : {"steam_utils_is_steam_running_on_steam_deck", "steam_is_cloud_enabled_for_app"})
         rt.vm.registerBuiltin(n, fn_false_fn);
 }

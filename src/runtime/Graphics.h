@@ -49,6 +49,7 @@ public:
     double guiHeight() const;
     void windowToGui(double wx, double wy, double& gx, double& gy) const;
     bool appSurfaceAutoDraw = true;
+    bool appSurfaceEnabled = true;  // application_surface_enable (drawing still goes through it)
     // A pointer drawn over the presented frame (window coordinates), for the stick-driven
     // virtual mouse on consoles; set by the host each frame.
     bool overlayCursor = false;

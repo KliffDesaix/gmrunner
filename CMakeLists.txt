@@ -197,7 +197,7 @@ endif()
 # tools/portmaster/). The Switch build uses Makefile.switch; iOS and Android are above.
 set(GMR_TARGET desktop CACHE STRING "desktop or handheld")
 add_executable(gmrunner ${HOST_SOURCES} src/platform/sdl/TargetDesktop.cpp src/platform/sdl/TargetHandheld.cpp)
-target_link_libraries(gmrunner PRIVATE gmcore ${SDL2_TARGET})
+target_link_libraries(gmrunner PRIVATE gmcore ${SDL2_TARGET} ${CMAKE_DL_LIBS})  # dlsym: newer SDL functions
 if(GMR_TARGET STREQUAL "handheld")
   target_compile_definitions(gmrunner PRIVATE GMR_HANDHELD)
   # One binary for many firmwares: no dependency on the device's C++ runtime.

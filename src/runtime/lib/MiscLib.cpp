@@ -1169,7 +1169,7 @@ static Value dialogDone(Runner& rt, std::vector<std::pair<std::string, Value>> f
 // The blocking dialogs answer at once: the default text or number, and "no" to a question.
 GMFN(get_string) { return Value(S(1)); }
 GMFN(get_integer) { return Value(D(1)); }
-GMFN(show_question) { return boolV(false); }
+GMFN(show_question) { return boolV(rt.platform.showMessage(ARG(0).toString(), true)); }
 // File pickers answer as if cancelled: an empty path.
 GMFN(get_open_filename) { GM_UNUSED_FN_ARGS; return Value(""); }
 GMFN(show_message_async) { return dialogDone(rt, {{"status", Value::boolean(true)}}); }
@@ -1429,10 +1429,14 @@ GMFN(os_get_info) {  // a ds_map of platform details, as on Windows (no D3D hand
     return Value(static_cast<double>(id));
 }
 GMFN(os_get_config) { return Value("Default"); }
-GMFN(os_get_region) { return Value("GB"); }
+GMFN(os_get_region) {
+    std::string language, region;
+    rt.platform.locale(language, region);
+    return Value(region);
+}
 GMFN(os_is_paused) { return boolV(false); }
 GMFN(os_is_network_connected) { return boolV(false); }
-GMFN(os_check_permission) { return Value(0.0); }
+GMFN(os_check_permission) { return Value(1.0); }  // os_permission_granted: no permissions to ask for here
 // ---- garbage collector: values are reference counted, so these only report and remember.
 static struct { bool enabled = true; int64_t targetMicros = 100; } gGc;
 GMFN(gc_enable) { gGc.enabled = B(0); return Value(); }

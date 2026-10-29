@@ -45,6 +45,7 @@ struct Input {
         bool latchPress[GP_BUTTON_COUNT] = {}, latchRelease[GP_BUTTON_COUNT] = {};
         bool down[GP_BUTTON_COUNT] = {}, pressed[GP_BUTTON_COUNT] = {}, released[GP_BUTTON_COUNT] = {};
         float axis[GP_AXIS_COUNT] = {};
+        float deadzone = 0;      // gamepad_set_axis_deadzone
         std::string name, guid;  // gamepad_get_description / gamepad_get_guid (set by the host)
     } pads[kPads];
     float buttonThreshold = 0.5f;

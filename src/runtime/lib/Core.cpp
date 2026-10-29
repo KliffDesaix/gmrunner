@@ -384,6 +384,7 @@ GMFN(show_debug_message) {
 }
 GMFN(show_message) {
     rt.log("[show_message] %s", ARG(0).toString().c_str());
+    rt.platform.showMessage(ARG(0).toString(), false);
     return Value();
 }
 GMFN(show_error) {
@@ -448,7 +449,10 @@ GMFN(game_restart) {
 }
 GMFN(code_is_compiled) { return boolV(false); }
 GMFN(debug_get_callstack) { return Value(rt.vm.currentCodeName()); }
-GMFN(environment_get_variable) { return Value(""); }
+GMFN(environment_get_variable) {
+    const char* v = getenv(S(0).c_str());
+    return Value(v ? v : "");
+}
 GMFN(parameter_count) { return Value(static_cast<double>(rt.parameters.empty() ? 0 : rt.parameters.size() - 1)); }
 GMFN(parameter_string) {
     int i = I(0);

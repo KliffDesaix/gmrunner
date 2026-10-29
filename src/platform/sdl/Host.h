@@ -117,7 +117,13 @@ public:
     double now() const override;
     bool hasGraphics() const override { return window != nullptr; }
     const char* osName() const override;
+    bool hasFocus() const override;
+    void padRumble(int pad, double left, double right) override;
+    void padLight(int pad, uint32_t rgb) override;
+    bool showMessage(const std::string& text, bool question) override;
+    void locale(std::string& language, std::string& region) const override;
     void drawableSize(int& w, int& h) const;
+    std::vector<SDL_GameController*>* pads = nullptr;  // HostInput's, by GML device index
 };
 
 // ---- Picker.cpp: chooses a game on screen when none was named (phones, --picker). `scan`
