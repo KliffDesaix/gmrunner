@@ -1436,7 +1436,7 @@ GMFN(os_get_region) {
 }
 GMFN(os_is_paused) { return boolV(false); }
 GMFN(os_is_network_connected) { return boolV(false); }
-GMFN(os_check_permission) { return Value(1.0); }  // os_permission_granted: no permissions to ask for here
+GMFN(os_check_permission) { return Value(0.0); }  // as GameMaker on desktops (gmtest sys.permission)
 // ---- garbage collector: values are reference counted, so these only report and remember.
 static struct { bool enabled = true; int64_t targetMicros = 100; } gGc;
 GMFN(gc_enable) { gGc.enabled = B(0); return Value(); }
