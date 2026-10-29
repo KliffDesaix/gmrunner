@@ -25,7 +25,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     container: devkitpro/devkita64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Borealis (the game list's UI library)
         run: |
           git init -q third_party/borealis
@@ -63,7 +63,7 @@ jobs:
         run: |
           tools/switch/build-launcher.sh
           make -f Makefile.switch -j 4
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: gmrunner-switch
           path: gmrunner.nro
