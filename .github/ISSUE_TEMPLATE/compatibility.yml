@@ -1,0 +1,53 @@
+name: Compatibility report
+description: Tell us how a game runs, well or not, so others know what to expect.
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One report per game and platform. For a specific problem with steps to reproduce it, a bug
+        report is more useful. Please don't attach game files.
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game and its version.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: gmRunner version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux (desktop)
+        - Windows
+        - Nintendo Switch
+        - PortMaster handheld
+        - Android
+        - iOS
+    validations:
+      required: true
+  - type: dropdown
+    id: state
+    attributes:
+      label: How it runs
+      options:
+        - Playable to the end
+        - Playable, with problems
+        - Starts, but can't be played far
+        - Doesn't start
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: How far you played, what goes wrong, speed on handhelds. The first lines of `--check` help (GameMaker version, what the game uses).

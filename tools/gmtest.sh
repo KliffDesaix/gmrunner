@@ -4,12 +4,17 @@
 #
 #   tools/gmtest.sh                   build it with GameMaker's Igor, run it in gmRunner and compare
 #                                     with tests/gmtest/reference.txt
+#                                     (and keeps the compiled game in tests/gmtest/game when the
+#                                     tests changed: Igor's output differs on every build)
+#   tools/gmtest.sh --prebuilt        run the compiled game kept in tests/gmtest/game instead: no
+#                                     GameMaker needed (CI, and contributors without GameMaker)
 #   tools/gmtest.sh --take-reference  copy the results of a run on GameMaker's own runner (open
 #                                     tests/gmtest/gmtest/gmtest.yyp in the IDE and press Run first)
 #                                     into tests/gmtest/reference.txt
 #
-# Needs GameMaker installed and signed in (Igor won't build otherwise); GMTEST_RUNTIME and
+# Building needs GameMaker installed and signed in (Igor won't build otherwise); GMTEST_RUNTIME and
 # GMTEST_USER point at the runtime and user folder when they aren't found by themselves.
+# GMRUNNER is the runner to test (default build/gmrunner).
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ref="$root/tests/gmtest/reference.txt"
@@ -25,11 +30,27 @@ if [ "${1:-}" = "--take-reference" ]; then
     exit 0
 fi
 
-python3 "$root/tests/gmtest/make_project.py" >/dev/null
+runner="${GMRUNNER:-$root/build/gmrunner}"
+kept="$root/tests/gmtest/game"
 rm -rf "${work:?}"; mkdir -p "$work"
-"$root/tools/gm-build.sh" "$root/tests/gmtest/gmtest/gmtest.yyp" "$work/game"
+if [ "${1:-}" = "--prebuilt" ]; then
+    game="$kept"
+    display=--headless  # no window needed: the tests read state, not pixels
+else
+    python3 "$root/tests/gmtest/make_project.py" >/dev/null
+    "$root/tools/gm-build.sh" "$root/tests/gmtest/gmtest/gmtest.yyp" "$work/game"
+    sources="$(cd "$root/tests/gmtest" && find src make_project.py -type f | LC_ALL=C sort | xargs shasum | shasum | cut -d' ' -f1)"
+    if [ "$(cat "$kept/sources.sha" 2>/dev/null)" != "$sources" ]; then
+        rm -rf "${kept:?}"; mkdir -p "$kept"
+        (cd "$work/game" && cp -R $(ls | grep -v '^igor\.log$') "$kept/")
+        echo "$sources" > "$kept/sources.sha"
+        echo "tests/gmtest/game: updated for the changed tests"
+    fi
+    game="$work/game"
+    display=--hidden
+fi
 
-"$root/build/gmrunner" "$work/game" --hidden --fast --frames 120 --mute --save-dir "$work/save" \
+"$runner" "$game" $display --fast --frames 120 --mute --save-dir "$work/save" \
     > "$work/gmrunner.log" 2>&1 || true
 results="$work/save/gmtest_results.txt"
 [ -f "$results" ] || { echo "gmRunner wrote no results; see $work/gmrunner.log" >&2; exit 1; }
