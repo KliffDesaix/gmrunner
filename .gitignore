@@ -23,5 +23,4 @@ build-ios-sim/
 build-switch-launcher/
 build-launcher-desktop/
 build-launcher-desktop.log
-build-nospine/
 private/
