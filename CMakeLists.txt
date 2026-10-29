@@ -19,6 +19,9 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   # (C and C++ only: the iOS build also compiles Swift, whose driver rejects these.)
   add_compile_options("$<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:-Wall;-Wextra;-Wno-unused-parameter;-Wno-unused-function>")
+  # Source paths in the binaries (__FILE__ in assertions, debug info) relative to the checkout,
+  # so builds don't carry the folder (and user name) they were made in.
+  add_compile_options("$<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=>")
 endif()
 
 # Platform-independent core: data.win loading, the bytecode VM and the GameMaker runtime.
