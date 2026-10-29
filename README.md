@@ -1,5 +1,8 @@
 # gmrunner
 
+[![CI](https://github.com/KliffDesaix/gmrunner/actions/workflows/ci.yml/badge.svg)](https://github.com/KliffDesaix/gmrunner/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/KliffDesaix/gmrunner?include_prereleases)](https://github.com/KliffDesaix/gmrunner/releases)
+
 An open-source runner for GameMaker games compiled to bytecode (`data.win`), aimed at
 running them as native Nintendo Switch homebrew, on Android and iOS, and on Linux handhelds
 through PortMaster, with a desktop build (macOS/Linux/Windows) for development and testing.
@@ -163,6 +166,13 @@ third_party    stb_image, stb_vorbis (public domain)
 ```
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for implementation notes.
+
+## Contributing
+
+Bug reports, compatibility reports and pull requests are welcome: see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the ground rules (no game files, no GameMaker internals),
+building and the feature tests (`tools/gmtest.sh --prebuilt`), which CI runs on every push. Report
+security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## License
 

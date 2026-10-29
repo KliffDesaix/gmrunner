@@ -1,0 +1,70 @@
+# Builds gmRunner and runs its GameMaker feature tests (tests/gmtest, compared with results from
+# GameMaker's own runner) on every push and pull request. The game regression runs need games
+# that can't be shared, so they stay local (see CONTRIBUTING.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libsdl2-dev libbz2-dev \
+            libavformat-dev libavcodec-dev libswscale-dev libswresample-dev libavutil-dev
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sdl2 ffmpeg
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4
+      - name: Decode the test game
+        run: ./build/gmdump tests/gmtest/game/game.ios verify
+      - name: GameMaker feature tests
+        run: tools/gmtest.sh --prebuilt
+      - name: Test log
+        if: failure()
+        run: cat build/gmtest/gmrunner.log
+
+  switch:
+    name: Nintendo Switch
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Borealis (the game list's UI library)
+        run: |
+          git init -q third_party/borealis
+          cd third_party/borealis
+          git fetch -q --depth 1 https://github.com/xfangfang/borealis 5f08b286f3df737f3321d2247a6fe633fcead03c
+          git checkout -q FETCH_HEAD
+      - name: Build
+        run: |
+          tools/switch/build-launcher.sh
+          make -f Makefile.switch -j 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gmrunner-switch
+          path: gmrunner.nro
+          retention-days: 7

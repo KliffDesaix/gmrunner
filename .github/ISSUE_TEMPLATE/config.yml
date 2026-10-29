@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/KliffDesaix/gmrunner/discussions
+    about: Setting gmRunner up, which games to try, feature ideas.
+  - name: Security problem
+    url: https://github.com/KliffDesaix/gmrunner/security/advisories/new
+    about: Report it privately (see SECURITY.md), not as an issue.

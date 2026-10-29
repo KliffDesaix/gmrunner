@@ -1,0 +1,76 @@
+name: Bug report
+description: A game behaves differently than in GameMaker, crashes, or gmRunner itself misbehaves.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please don't attach game files (data.win, assets, saves), even of
+        free games: describe the problem and a maintainer will reproduce it with their own copy.
+  - type: input
+    id: version
+    attributes:
+      label: gmRunner version
+      description: The release you downloaded, or the first line of `gmrunner --help`.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux (desktop)
+        - Windows
+        - Nintendo Switch
+        - PortMaster handheld
+        - Android
+        - iOS
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and system
+      description: For handhelds and phones, the model and firmware (for example R36S with ArkOS 2.0).
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game and its version, and where it comes from (Steam, itch.io, ...).
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what should happen
+      description: What the same game does with GameMaker's own runner (on its official platform) is the reference.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to get there
+      description: From starting the game, the steps that lead to the problem.
+      placeholder: |
+        1. New game
+        2. Walk right to the second room
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: "`--check` output"
+      description: Desktop only. The output of `gmrunner "/path/to/game" --check`.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Desktop: run with `--trace` and paste the end of what it prints. Switch: `sdmc:/switch/gmrunner/gmrunner.log`.
+        PortMaster: `log.txt` in the gmrunner port folder. Android and iOS: `gmrunner.log` in the app's games folder.
+        Screenshots or a short video help too.
+      render: text
