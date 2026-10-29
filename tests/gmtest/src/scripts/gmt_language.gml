@@ -72,6 +72,43 @@ function gmt_language() {
     var _grid = [[1, 2], []];
     try { var _w = _grid[1][0]; gmt_log("array.read_empty_row", _w); } catch (_e) { gmt_log("array.read_empty_row", "error"); }
 
+    // Compound assignment to an element of a nested array (savearef / restorearef in the bytecode),
+    // on global, instance, local and struct arrays, with the index from a variable.
+    var _k = 1;
+    global.gmt_grid = [[0, 0], [5, 5]];
+    global.gmt_grid[0][_k] += 3;
+    global.gmt_grid[1][_k] -= 2;
+    global.gmt_grid[1][0] *= 4;
+    gmt_log("array2d.global_compound", global.gmt_grid);
+    gmt_cells = [[10, 20], [30, 40]];
+    gmt_cells[_k][0] -= 1;
+    gmt_cells[0][_k] /= 4;
+    gmt_log("array2d.instance_compound", gmt_cells);
+    var _local = [[1], [2, 3]];
+    _local[1][_k] += _local[0][0];
+    _local[0][0] |= 6;
+    gmt_log("array2d.local_compound", _local);
+    var _holder = { rows: [["a"], ["b"]] };
+    _holder.rows[1][0] += "c";
+    gmt_log("array2d.struct_compound", _holder.rows);
+    var _counts = [[0, 0, 0]];
+    _counts[0][_k]++;
+    ++_counts[0][2];
+    _counts[0][0]--;
+    var _post = _counts[0][_k]++;
+    gmt_log("array2d.increment", string(_counts) + " " + string(_post));
+    var _cube = [[[1, 2]]];
+    _cube[0][0][_k] += 10;
+    gmt_log("array2d.three_levels", _cube);
+    var _cursor = [[0, 0]];
+    for (var _i = 0; _i < 3; _i++) _cursor[0][_k] = (_cursor[0][_k] + 1) % 3;
+    _cursor[0][0] -= 1;
+    gmt_log("array2d.cursor_wrap", _cursor);
+    var _legacy;
+    _legacy[0, 1] = 7;
+    _legacy[0, 1] += 1;
+    gmt_log("array2d.legacy_syntax", _legacy[0, 1]);
+
     // Nested: the inner try's handler is gone once its catch ran; the outer one still works.
     _log = "";
     try {

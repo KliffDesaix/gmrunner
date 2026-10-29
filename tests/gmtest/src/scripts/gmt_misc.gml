@@ -15,4 +15,18 @@ function gmt_misc() {
     gmt_log("str.split", json_stringify(string_split("a,b,,c", ",")));
     gmt_log("str.replace", string_replace_all("aaa", "a", "bb"));
     gmt_log("arr.sort", json_stringify(array_sort([3, 1, 2], true)));
+
+    // Functions that used to be stubs: values that don't depend on the machine or a controller.
+    application_surface_enable(false);
+    var _app_off = application_surface_is_enabled();
+    application_surface_enable(true);
+    gmt_log("sys.app_surface_enabled", string(_app_off) + " " + string(application_surface_is_enabled()));
+    gamepad_set_axis_deadzone(0, 0.25);
+    gmt_log("sys.pad_deadzone", gamepad_get_axis_deadzone(0));
+    gamepad_set_axis_deadzone(0, 0);
+    gmt_log("sys.pad_hats_unplugged", string(gamepad_hat_count(11)) + " " + string(gamepad_hat_value(11, 0)));
+    mouse_clear(mb_left);
+    gmt_log("sys.mouse_clear", mouse_check_button(mb_left));
+    gmt_log("sys.env_missing", environment_get_variable("GMTEST_SURELY_UNSET_VARIABLE"));
+    gmt_log("sys.permission", os_check_permission("android.permission.INTERNET"));
 }

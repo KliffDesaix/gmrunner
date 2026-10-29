@@ -290,6 +290,7 @@ int runOnce(int argc, char** argv) {
     }
 
     HostInput input;
+    platform.pads = &input.pads;
     // One game at a time; game_change replaces it (and its audio device) in the same window.
     std::unique_ptr<Runner> rt;
     SDL_AudioDeviceID audioDev = 0;

@@ -316,8 +316,8 @@ GMFN(draw_surface_general) {  // (id, left, top, w, h, x, y, xscale, yscale, rot
 GMFN(surface_copy_part) { G.surfaceCopyPart(I(0), D(1), D(2), I(3), D(4), D(5), D(6), D(7)); return Value(); }
 GMFN(surface_get_target) { return Value(static_cast<double>(G.surfaceGetTarget())); }
 GMFN(application_surface_draw_enable) { G.appSurfaceAutoDraw = B(0); return Value(); }
-GMFN(application_surface_enable) { return Value(); }
-GMFN(application_surface_is_enabled) { return boolV(true); }
+GMFN(application_surface_enable) { G.appSurfaceEnabled = B(0); return Value(); }
+GMFN(application_surface_is_enabled) { return boolV(G.appSurfaceEnabled); }
 
 // ---- shaders
 GMFN(shader_set) { G.shaderSet(I(0)); return Value(); }
@@ -441,7 +441,7 @@ GMFN(window_set_caption) { rt.platform.setWindowCaption(S(0)); return Value(); }
 GMFN(window_get_caption) { return Value(rt.roomCaption); }
 GMFN(window_mouse_get_x) { return Value(rt.input.mouseX); }
 GMFN(window_mouse_get_y) { return Value(rt.input.mouseY); }
-GMFN(window_has_focus) { return boolV(true); }
+GMFN(window_has_focus) { return boolV(rt.platform.hasFocus()); }
 GMFN(display_get_width) { return Value(static_cast<double>(rt.platform.displayWidth())); }
 GMFN(display_get_height) { return Value(static_cast<double>(rt.platform.displayHeight())); }
 // display_landscape (0) unless the display is taller than wide (display_portrait, 2).
@@ -506,7 +506,15 @@ GMFN(external_call) {
 }
 GMFN(minus_one) { return Value(-1.0); }
 GMFN(empty_string) { return Value(""); }
-GMFN(os_get_language) { return Value("en"); }
+GMFN(os_get_language) {
+    std::string language, region;
+    rt.platform.locale(language, region);
+    return Value(language);
+}
+GMFN(draw_flush) {
+    G.renderer().flush();
+    return Value();
+}
 
 void registerDrawBuiltins(Runner& rt) {
     GMREG(draw_set_font); GMREG(draw_get_font); GMREG(draw_set_color); GMALIAS(draw_set_colour, draw_set_color);
@@ -558,17 +566,15 @@ void registerDrawBuiltins(Runner& rt) {
     GMREG(window_get_x); GMREG(window_get_y); GMREG(window_set_size); GMREG(window_set_caption);
     GMREG(window_get_caption); GMREG(window_mouse_get_x); GMREG(window_mouse_get_y); GMREG(window_has_focus);
     GMREG(display_get_width); GMREG(display_get_orientation); GMREG(display_get_height); GMREG(display_get_gui_width); GMREG(display_get_gui_height); GMREG(display_set_gui_size); GMREG(display_set_gui_maximize);
-    GMREG(display_mouse_get_x); GMREG(display_mouse_get_y);
+    GMREG(display_mouse_get_x); GMREG(display_mouse_get_y); GMREG(draw_flush);
 
-    for (const char* n : {"window_set_position", "window_center", "window_set_cursor", "display_reset",
+    for (const char* n : {"display_reset",
                           "show_debug_overlay",
                           "steam_send_screenshot", "steam_set_achievement", "steam_clear_achievement",
                           "steam_set_stat_int", "steam_set_stat_float", "steam_upload_score",
                           "steam_activate_overlay", "achievement_post", "achievement_increment",
                           "display_set_timing_method", "display_set_windows_alternate_sync", "display_set_windows_vertex_buffer_method",
-                          "display_set_sleep_margin", "display_set_ui_visibility", "os_lock_orientation", "os_powersave_enable", "window_enable_borderless_fullscreen", "texture_set_repeat",
-                          "draw_flush", "window_set_min_width", "window_set_min_height",
-                          "window_set_max_width", "window_set_max_height", "audio_channel_num",
+                          "display_set_sleep_margin", "display_set_ui_visibility", "os_lock_orientation", "os_powersave_enable", "window_enable_borderless_fullscreen",
                           // debug overlay
                           "dbg_view_delete", "dbg_section_delete", "dbg_button", "dbg_checkbox", "dbg_text",
                           "dbg_slider", "dbg_slider_int", "dbg_drop_down", "dbg_text_input", "dbg_sprite",
@@ -612,10 +618,10 @@ void registerDrawBuiltins(Runner& rt) {
     for (const char* n : {"steam_is_screenshot_requested", "steam_initialised", "steam_stats_ready",
                           "is_debug_overlay_open", "is_mouse_over_debug_overlay", "is_keyboard_used_debug_overlay",
                           "steam_is_overlay_enabled", "steam_is_overlay_activated", "steam_get_achievement",
-                          "os_is_paused", "os_is_network_connected", "achievement_available", "achievement_login_status"})
+                          "achievement_available", "achievement_login_status"})
         rt.vm.registerBuiltin(n, fn_false_);
     for (const char* n : {"steam_get_app_id", "steam_get_user_account_id", "steam_get_stat_int",
-                          "steam_get_stat_float", "display_aa", "os_get_region"})
+                          "steam_get_stat_float", "display_aa"})
         rt.vm.registerBuiltin(n, fn_zero);
     rt.vm.registerBuiltin("steam_get_persona_name", fn_empty_string);
     rt.vm.registerBuiltin("os_get_language", fn_os_get_language);

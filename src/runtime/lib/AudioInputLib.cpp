@@ -307,7 +307,17 @@ static bool mouseQuery(const bool* st, int b) {
 GMFN(mouse_check_button) { return boolV(mouseQuery(rt.input.mouseDown, I(0))); }
 GMFN(mouse_check_button_pressed) { return boolV(mouseQuery(rt.input.mousePressed, I(0))); }
 GMFN(mouse_check_button_released) { return boolV(mouseQuery(rt.input.mouseReleased, I(0))); }
-GMFN(mouse_clear) { return Value(); }
+// mouse_clear(button): the button reads as up until it is pressed again.
+GMFN(mouse_clear) {
+    Input& in = rt.input;
+    int b = I(0);
+    for (int i = 0; i < 3; i++)
+        if (b == -1 || b == i + 1) {
+            in.mouseRaw[i] = in.mouseDown[i] = in.mousePressed[i] = in.mouseReleased[i] = false;
+            in.mouseLatchPress[i] = in.mouseLatchRelease[i] = false;
+        }
+    return Value();
+}
 
 // ---- gamepads (gp_face1 = 32769 ... gp_padr = 32784, gp_axislh = 32785 ...)
 static Input::Pad* pad(Runner& rt, int d) { return d >= 0 && d < Input::kPads ? &rt.input.pads[d] : nullptr; }
@@ -346,7 +356,38 @@ GMFN(gamepad_axis_value) {
     Input::Pad* p = pad(rt, I(0));
     int a = I(1) - kGpBase - GP_BUTTON_COUNT;
     if (!p || a < 0 || a >= GP_AXIS_COUNT) return Value(0.0);
-    return Value(static_cast<double>(p->axis[a]));
+    double v = p->axis[a], dz = p->deadzone;
+    // Inside the dead zone: 0; outside it the rest of the range is stretched back to 0..1.
+    if (dz > 0) v = std::fabs(v) < dz ? 0.0 : (std::fabs(v) - dz) / (1.0 - dz) * (v < 0 ? -1 : 1);
+    return Value(v);
+}
+GMFN(gamepad_set_axis_deadzone) {
+    if (Input::Pad* p = pad(rt, I(0))) p->deadzone = static_cast<float>(std::clamp(D(1), 0.0, 0.99));
+    return Value();
+}
+GMFN(gamepad_get_axis_deadzone) {
+    Input::Pad* p = pad(rt, I(0));
+    return Value(p ? static_cast<double>(p->deadzone) : 0.0);
+}
+GMFN(gamepad_set_vibration) {
+    rt.platform.padRumble(I(0), D(1), D(2));
+    return Value();
+}
+GMFN(gamepad_set_colour) {  // GameMaker colours are 0xBBGGRR
+    uint32_t c = static_cast<uint32_t>(I(1));
+    rt.platform.padLight(I(0), ((c & 0xFF) << 16) | (c & 0xFF00) | ((c >> 16) & 0xFF));
+    return Value();
+}
+// The d-pad as one hat: a mask of up 1, right 2, down 4, left 8.
+GMFN(gamepad_hat_count) {
+    Input::Pad* p = pad(rt, I(0));
+    return Value(p && p->connected ? 1.0 : 0.0);
+}
+GMFN(gamepad_hat_value) {
+    Input::Pad* p = pad(rt, I(0));
+    if (!p || !p->connected || I(1) != 0) return Value(0.0);
+    return Value(static_cast<double>((p->down[GP_PADU] ? 1 : 0) | (p->down[GP_PADR] ? 2 : 0) |
+                                     (p->down[GP_PADD] ? 4 : 0) | (p->down[GP_PADL] ? 8 : 0)));
 }
 GMFN(gamepad_set_button_threshold) { rt.input.buttonThreshold = static_cast<float>(D(1)); return Value(); }
 GMFN(gamepad_get_description) {
@@ -419,9 +460,9 @@ void registerInputBuiltins(Runner& rt) {
     GMREG(gamepad_get_description); GMREG(gamepad_get_guid); GMREG(gamepad_get_mapping);
     GMREG(gamepad_test_mapping); GMREG(gamepad_remove_mapping); GMREG(gamepad_axis_count); GMREG(gamepad_button_count);
     GMREG(joystick_exists); GMREG(joystick_check_button); GMREG(joystick_xpos); GMREG(joystick_ypos);
-    for (const char* n : {"gamepad_set_axis_deadzone", "gamepad_set_vibration", "gamepad_set_color",
-                          "gamepad_set_colour"})
-        rt.vm.registerBuiltin(n, fn_audio_noop);
+    GMREG(gamepad_set_axis_deadzone); GMREG(gamepad_get_axis_deadzone); GMREG(gamepad_set_vibration);
+    GMREG(gamepad_set_colour); GMALIAS(gamepad_set_color, gamepad_set_colour); GMREG(gamepad_hat_count);
+    GMREG(gamepad_hat_value);
 }
 
 }  // namespace gm
