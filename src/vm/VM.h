@@ -216,7 +216,6 @@ private:
     // whether its `static` initialisers have run.
     std::unordered_map<int32_t, Value> staticScopes_;
     std::unordered_set<int32_t> staticInit_;
-    Value savedAref_;  // savearef / restorearef
     std::unordered_map<std::string, int> unknownCalls_;
     int64_t loopCount_ = 0;
     void checkLoop() {

@@ -1251,11 +1251,12 @@ Value VM::execute(Frame& f) {
                     case -7:  // setstatic
                         staticInit_.insert(f.codeIndex);
                         break;
-                    case -8:  // savearef: hold an array reference during a compound assignment
-                        savedAref_ = pop();
-                        break;
+                    // savearef / restorearef bracket a compound assignment to a multi-dimensional
+                    // array element (a[i][j] += n): dup, savearef, pushaf, <op>, restorearef, a dup
+                    // swap, popaf. They leave the stack as it is; the dup swap puts the new value
+                    // under the container and index for popaf.
+                    case -8:  // savearef
                     case -9:  // restorearef
-                        push(savedAref_, 16);
                         break;
                     case -11: {  // pushref: asset reference (type in the top byte) or function
                         if (c.funcRef) {
