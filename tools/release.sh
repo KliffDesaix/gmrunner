@@ -104,6 +104,27 @@ if want source; then
     gzip -9 "$tarball"
 fi
 
+# Builds must not carry the machine they were made on: no home folder or user name in any file
+# of any artifact (source paths are made relative by CMakeLists.txt; this catches what slips by).
+leak="$(mktemp -d)"
+for f in "$out"/*; do
+    case "$f" in
+        *.zip | *.apk | *.ipa) unzip -q -o "$f" -d "$leak/$(basename "$f")" ;;
+        *source.tar.gz) mkdir -p "$leak/src" && tar xzf "$f" -C "$leak/src" ;;
+        *.tar.xz) ;;  # FFmpeg's own source, as published
+        *) cp "$f" "$leak/" ;;
+    esac
+done
+user="$(id -un)"
+found="$(find "$leak" -type f -exec sh -c '(strings -a "$1"; strings -a -e l "$1") 2>/dev/null' _ {} \; |
+         grep -i -F -e "$HOME" -e "/$user/" -e "-$user-" | sort -u | head -5)"
+rm -rf "${leak:?}"
+if [ -n "$found" ]; then
+    echo "the builds contain this machine's paths or user name; not releasing:" >&2
+    echo "$found" >&2
+    exit 1
+fi
+
 cat > "$out/NOTICE.txt" <<EOF
 gmRunner $version (commit $commit)
 
