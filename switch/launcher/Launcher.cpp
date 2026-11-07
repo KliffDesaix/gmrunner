@@ -299,6 +299,15 @@ class Launcher {
         if (!games.empty()) showOptions(games[0]);
     }
 
+#ifndef __SWITCH__
+    // Picks a row of the last menu opened (options, then icons) as A on it would (the preview's
+    // GMR_LAUNCHER_PICK). The dropdown's data source is a private base, which only a C-style
+    // cast reaches.
+    void pickOption(int row) {
+        if (options_) ((brls::RecyclerDataSource*)options_)->didSelectRowAt(nullptr, brls::IndexPath(0, row));
+    }
+#endif
+
     void refresh() {
         // A new frame with the other layout replaces the current one (keeps actions in sync).
         brls::Application::popActivity(brls::TransitionAnimation::NONE);
@@ -497,16 +506,27 @@ class Launcher {
     void showOptions(const Game& g) {
         std::vector<std::string> items = {"Rename", "Change icon"};
         if (!g.icon.empty()) items.push_back("Standard icon");
-        auto* dropdown = new brls::Dropdown(g.title, items, [this, g](int sel) {
-            if (sel == 0) rename(g);
-            if (sel == 1) chooseIcon(g);
-            if (sel == 2) {
-                setIniValue(g.dir, "icon", "");
-                refreshLater();
-            }
-        }, -1);  // a list of actions: none is "selected"
+        // The action runs once the menu has closed: Borealis calls the first callback before it
+        // pops the top activity, which would then be the icon list opened from it.
+        auto* dropdown = new brls::Dropdown(
+            g.title, items, [](int) {},
+            -1,  // a list of actions: none is "selected"
+            [this, g](int sel) {
+                if (sel == 0) rename(g);
+                if (sel == 1) chooseIcon(g);
+                if (sel == 2) {
+                    setIniValue(g.dir, "icon", "");
+                    refreshLater();
+                }
+            });
+#ifndef __SWITCH__
+        options_ = dropdown;
+#endif
         brls::Application::pushActivity(new brls::Activity(dropdown));
     }
+#ifndef __SWITCH__
+    brls::Dropdown* options_ = nullptr;  // the last menu opened (preview aid)
+#endif
 
     void rename(const Game& g) {
         brls::Application::getImeManager()->openForText(
@@ -527,11 +547,16 @@ class Launcher {
             dialog->open();
             return;
         }
-        auto* dropdown = new brls::Dropdown("Icon for " + g.title, pics, [this, g, pics](int sel) {
+        auto current = std::find(pics.begin(), pics.end(), g.icon);
+        int selected = current == pics.end() ? -1 : static_cast<int>(current - pics.begin());
+        auto* dropdown = new brls::Dropdown("Icon for " + g.title, pics, [](int) {}, selected, [this, g, pics](int sel) {
             if (sel < 0 || sel >= static_cast<int>(pics.size())) return;
             setIniValue(g.dir, "icon", pics[static_cast<size_t>(sel)]);
             refreshLater();
         });
+#ifndef __SWITCH__
+        options_ = dropdown;
+#endif
         brls::Application::pushActivity(new brls::Activity(dropdown));
     }
 
@@ -560,10 +585,20 @@ extern "C" int gmr_switch_launcher(const char* root, char* out, int outSize) {
 #ifndef __SWITCH__
         // Desktop preview aids: GMR_LAUNCHER_LIST=1 starts in list view, GMR_LAUNCHER_OPTIONS=1 opens
         // the first game's options, GMR_LAUNCHER_LICENSES=1 the licenses, GMR_LAUNCHER_LICENSE=file.txt
-        // one license, GMR_LAUNCHER_SHOT=file.png saves a frame and closes.
+        // one license, GMR_LAUNCHER_PICK=N[,N...] then picks the Nth entry of it and of the menus it
+        // opens (1,0: the first picture as the icon), GMR_LAUNCHER_SHOT=file.png saves a frame and
+        // closes.
         if (getenv("GMR_LAUNCHER_LIST")) launcher.grid = false;
         const char* shot = getenv("GMR_LAUNCHER_SHOT");
         int frames = 0;
+        std::vector<int> picks;
+        if (const char* p = getenv("GMR_LAUNCHER_PICK"))
+            for (std::stringstream ss(p); ss.good();) {
+                std::string n;
+                std::getline(ss, n, ',');
+                picks.push_back(atoi(n.c_str()));
+            }
+        const int shotFrame = 90 + 60 * static_cast<int>(picks.empty() ? 0 : picks.size() - 1);
 #endif
         brls::Application::pushActivity(new brls::Activity(launcher.build()));
         launcher.focusLast();
@@ -571,9 +606,11 @@ extern "C" int gmr_switch_launcher(const char* root, char* out, int outSize) {
 #ifndef __SWITCH__
             frames++;
             if (frames == 30 && getenv("GMR_LAUNCHER_OPTIONS")) launcher.optionsForFirst();
+            for (size_t i = 0; i < picks.size(); i++)
+                if (frames == 60 + 60 * static_cast<int>(i)) launcher.pickOption(picks[i]);
             if (frames == 30 && getenv("GMR_LAUNCHER_LICENSES")) launcher.showLicenses();
             if (frames == 30 && getenv("GMR_LAUNCHER_LICENSE")) Launcher::showLicenseText("License", getenv("GMR_LAUNCHER_LICENSE"));
-            if (shot && frames == 90) {
+            if (shot && frames == shotFrame) {
                 GLint vp[4];
                 glGetIntegerv(GL_VIEWPORT, vp);
                 std::vector<uint8_t> px(static_cast<size_t>(vp[2]) * vp[3] * 4), flipped(px.size());

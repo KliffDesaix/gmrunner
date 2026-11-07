@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds a gmRunner release from a clean checkout into dist/release/<version>/:
 #
-#   gmrunner-<version>-switch.nro         Nintendo Switch (Docker: devkitpro/devkita64)
+#   gmrunner.nro                          Nintendo Switch (Docker: devkitpro/devkita64), named as it
+#                                         goes on the SD card
 #   gmrunner-<version>-portmaster.zip     PortMaster: one "gmRunner" port with a game list (Docker)
 #   gmrunner-<version>-android.apk        Android (Gradle, JDK 17, Android SDK and NDK)
 #   gmrunner-<version>-ios.ipa            iOS, unsigned, for SideStore / AltStore (Xcode)
@@ -58,7 +59,7 @@ if want switch; then
     echo "== Switch"
     docker run --rm -e GMR_PRIVATE -v "$root":/src -w /src devkitpro/devkita64 \
         sh -c "tools/switch/build-launcher.sh >/dev/null && make -f Makefile.switch clean >/dev/null && make -f Makefile.switch -j4 >/dev/null"
-    cp gmrunner.nro "$out/gmrunner-$version-switch.nro"
+    cp gmrunner.nro "$out/gmrunner.nro"
     ffmpeg_switch="$(docker run --rm devkitpro/devkita64 sh -c 'dkp-pacman -Q switch-ffmpeg 2>/dev/null || pacman -Q switch-ffmpeg 2>/dev/null' || true)"
 fi
 
