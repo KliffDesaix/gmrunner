@@ -35,7 +35,7 @@ These keep the project legal and shareable. Pull requests that break them can't 
 
 **Feature tests** (`tests/gmtest`): a GameMaker project whose scripts log what they observe as
 `name = value` lines; `tests/gmtest/reference.txt` holds the results of GameMaker's own runner,
-and gmRunner has to match them. CI runs them on every push and pull request.
+and gmRunner has to match them. Run them before every pull request.
 
 ```bash
 tools/gmtest.sh --prebuilt    # run the compiled test game kept in tests/gmtest/game
@@ -80,7 +80,8 @@ genre if you'd rather not name them).
 - One topic per pull request; keep refactoring separate from behaviour changes.
 - The first line of each commit message says what changed; the body says why, and what was
   wrong before.
-- CI (desktop builds with the feature tests, and the Switch build) must pass.
+- The desktop build with the feature tests (`tools/gmtest.sh --prebuilt`) and the Switch build
+  must pass.
 - Update the docs and `--help` when behaviour or options change.
 
 ## Reporting bugs

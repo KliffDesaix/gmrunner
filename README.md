@@ -1,6 +1,5 @@
 # gmrunner
 
-[![CI](https://github.com/KliffDesaix/gmrunner/actions/workflows/ci.yml/badge.svg)](https://github.com/KliffDesaix/gmrunner/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/KliffDesaix/gmrunner?include_prereleases)](https://github.com/KliffDesaix/gmrunner/releases)
 
 An open-source runner for GameMaker games compiled to bytecode (`data.win`), aimed at
