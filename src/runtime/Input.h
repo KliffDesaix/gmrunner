@@ -47,7 +47,19 @@ struct Input {
         float axis[GP_AXIS_COUNT] = {};
         float deadzone = 0;      // gamepad_set_axis_deadzone
         std::string name, guid;  // gamepad_get_description / gamepad_get_guid (set by the host)
+        // When the game last read each button and the sticks (Runner::stepCount + 1; 0 never),
+        // so the host knows which presses the game hears through the gamepad.
+        uint64_t buttonReadAt[GP_BUTTON_COUNT] = {};
+        uint64_t axesReadAt = 0;
     } pads[kPads];
+    // The game has read this gamepad button (or, with button -1, the sticks) within the last
+    // half second of steps: it is listening to the gamepad there.
+    static constexpr uint64_t kListenSteps = 30;
+    bool padHeard(int pad, int button, uint64_t step) const {
+        if (pad < 0 || pad >= kPads || button >= GP_BUTTON_COUNT) return false;
+        uint64_t at = button < 0 ? pads[pad].axesReadAt : pads[pad].buttonReadAt[button];
+        return at > 0 && step + 1 - at <= kListenSteps;
+    }
     float buttonThreshold = 0.5f;
 
     double mouseX = 0, mouseY = 0;  // in window (backbuffer) pixels

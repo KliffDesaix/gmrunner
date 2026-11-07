@@ -77,7 +77,7 @@ TouchPad::~TouchPad() = default;
 
 bool TouchPad::handleFinger(const SDL_TouchFingerEvent& e, Runner& rt, int w, int h) {
     if (!visible) return false;
-    auto cs = layout(w, h, inset, buttons ? buttons->map.onScreen : nullptr);
+    auto cs = layout(w, h, inset, buttons ? buttons->maps[0].onScreen : nullptr);
     double x = e.x * w, y = e.y * h;
     Finger* f = nullptr;
     for (auto& fi : fingers)
@@ -135,7 +135,7 @@ void TouchPad::draw(Renderer& r, int w, int h) {
     if (!painter || painterOwner != &r) painter = std::make_unique<Painter>(r), painterOwner = &r;
     Painter& p = *painter;
     const uint32_t white = rgb(255, 255, 255), dark = rgb(0, 0, 0);
-    for (auto& c : layout(w, h, inset, buttons ? buttons->map.onScreen : nullptr)) {
+    for (auto& c : layout(w, h, inset, buttons ? buttons->maps[0].onScreen : nullptr)) {
         if (c.button < 0) {  // d-pad: a cross on a disc, the pressed arms lit
             p.circle(c.x, c.y, c.r, dark, 0.25);
             double a = c.r * 0.34, l = c.r * 0.86;

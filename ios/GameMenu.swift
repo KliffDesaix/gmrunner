@@ -19,13 +19,20 @@ struct MenuButton: Decodable, Identifiable {
     let auto: [String]
 }
 
+// One controller, by its number (the second connected controller is controller 2): its buttons,
+// and the name of the controller connected as it ("" when none is).
+struct MenuController: Decodable {
+    let name: String
+    var buttons: [MenuButton]
+}
+
 struct MenuInfo: Decodable {
     let ini: String
     let readsKeyboard: Bool
     let readsGamepad: Bool
     var touchMode: String
     var shortcut: String
-    var buttons: [MenuButton]
+    var controllers: [MenuController]
     let keys: [MenuTarget]
     let pads: [MenuTarget]
 }
@@ -49,22 +56,29 @@ final class MenuModel: ObservableObject {
         return shown.isEmpty ? "Nothing" : shown.map(name).joined(separator: " + ")
     }
 
-    func setAutomatic(_ i: Int, _ on: Bool) {
-        info.buttons[i].set = !on
-        if on { info.buttons[i].targets = info.buttons[i].auto }
-        save(i)
+    func controllerName(_ c: Int) -> String {
+        let name = info.controllers[c].name
+        return name.isEmpty ? "Not connected" : name
     }
 
-    func toggle(_ i: Int, _ id: String) {
-        info.buttons[i].set = true
-        if let at = info.buttons[i].targets.firstIndex(of: id) { info.buttons[i].targets.remove(at: at) }
-        else { info.buttons[i].targets.append(id) }
-        save(i)
+    func setAutomatic(_ c: Int, _ i: Int, _ on: Bool) {
+        info.controllers[c].buttons[i].set = !on
+        if on { info.controllers[c].buttons[i].targets = info.controllers[c].buttons[i].auto }
+        save(c, i)
     }
 
-    private func save(_ i: Int) {
-        let b = info.buttons[i]
-        GameStore.writeIniKey(dir, "map_" + b.id, b.set ? (b.targets.isEmpty ? "none" : b.targets.joined(separator: " ")) : nil)
+    func toggle(_ c: Int, _ i: Int, _ id: String) {
+        info.controllers[c].buttons[i].set = true
+        if let at = info.controllers[c].buttons[i].targets.firstIndex(of: id) { info.controllers[c].buttons[i].targets.remove(at: at) }
+        else { info.controllers[c].buttons[i].targets.append(id) }
+        save(c, i)
+    }
+
+    // map_a for controller 1, p2_map_a for controller 2, ...
+    private func save(_ c: Int, _ i: Int) {
+        let b = info.controllers[c].buttons[i]
+        let key = (c == 0 ? "" : "p\(c + 1)_") + "map_" + b.id
+        GameStore.writeIniKey(dir, key, b.set ? (b.targets.isEmpty ? "none" : b.targets.joined(separator: " ")) : nil)
     }
 
     func setTouchMode(_ mode: String) {
@@ -85,15 +99,18 @@ struct GameMenuView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Controls") {
-                    ForEach(model.info.buttons.indices, id: \.self) { i in
-                        let b = model.info.buttons[i]
+                Section {
+                    ForEach(model.info.controllers.indices, id: \.self) { c in
                         NavigationLink {
-                            ButtonChoiceView(model: model, index: i)
+                            ControllerView(model: model, controller: c)
                         } label: {
-                            LabeledContent(b.label, value: model.summary(b.targets, own: b.pad))
+                            LabeledContent("Controller \(c + 1)", value: model.controllerName(c))
                         }
                     }
+                } header: {
+                    Text("Controls")
+                } footer: {
+                    Text("Each controller has its own buttons. For co-op in a game that only reads the keyboard, give controllers 2 to 4 keys of their own.")
                 }
                 Section {
                     Picker("On-Screen Controls", selection: Binding(get: { model.info.touchMode }, set: model.setTouchMode)) {
@@ -120,15 +137,40 @@ struct GameMenuView: View {
     }
 }
 
+// What one controller's buttons press.
+struct ControllerView: View {
+    @ObservedObject var model: MenuModel
+    let controller: Int
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(model.info.controllers[controller].buttons.indices, id: \.self) { i in
+                    let b = model.info.controllers[controller].buttons[i]
+                    NavigationLink {
+                        ButtonChoiceView(model: model, controller: controller, index: i)
+                    } label: {
+                        LabeledContent(b.label, value: model.summary(b.targets, own: b.pad))
+                    }
+                }
+            } footer: {
+                Text(model.controllerName(controller))
+            }
+        }
+        .navigationTitle("Controller \(controller + 1)")
+    }
+}
+
 struct ButtonChoiceView: View {
     @ObservedObject var model: MenuModel
+    let controller: Int
     let index: Int
 
     var body: some View {
-        let b = model.info.buttons[index]
+        let b = model.info.controllers[controller].buttons[index]
         List {
             Section {
-                Toggle("Automatic", isOn: Binding(get: { !b.set }, set: { model.setAutomatic(index, $0) }))
+                Toggle("Automatic", isOn: Binding(get: { !b.set }, set: { model.setAutomatic(controller, index, $0) }))
             } footer: {
                 Text("Automatic for this game: \(model.summary(b.auto, own: b.pad))")
             }
@@ -146,7 +188,7 @@ struct ButtonChoiceView: View {
         Section(title) {
             ForEach(targets) { t in
                 Button {
-                    model.toggle(index, t.id)
+                    model.toggle(controller, index, t.id)
                 } label: {
                     HStack {
                         VStack(alignment: .leading) {

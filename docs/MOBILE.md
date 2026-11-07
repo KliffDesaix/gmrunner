@@ -27,7 +27,9 @@ Both builds use SDL2 built from its source release. Download it once and unpack 
   so mouse and touch games work as well; games that only read the mouse get no buttons. They
   keep clear of the notch or camera cutout and the home indicator. `touch_controls = off` (or
   `on`, to keep them with a controller connected) in the game's `gmrunner.ini` overrides this.
-- **The in-game menu** pauses the game: Resume, Controls (change what each button presses),
+- **The in-game menu** pauses the game: Resume, Controls (change what each button presses, per
+  controller: give controllers 2 to 4 keys of their own for co-op in games that only read the
+  keyboard; see [Button mapping](SWITCH.md#button-mapping)),
   On-screen controls, Menu shortcut and Exit game. It is the platform's own sheet (SwiftUI on
   iOS, Material 3 on Android), and saves to the game's `gmrunner.ini`. It opens with the
   floating button at the top of the screen, or as chosen under Menu shortcut (`menu_shortcut =`):

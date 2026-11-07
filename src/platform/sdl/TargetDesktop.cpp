@@ -22,6 +22,7 @@ const TargetInfo& target() {
         false,  // touchControls
         false,  // orientFromGame
         false,  // returnToPicker
+        false,  // controllerSetup
     };
     return info;
 }
@@ -39,7 +40,7 @@ std::vector<std::string> targetGameList() { return {}; }
 std::vector<std::string> targetPickerHelp() { return {}; }
 bool targetNativePick(std::string&) { return false; }
 
-std::string targetSaveDir(const std::string& gameName) {
+std::string targetSaveDir(const std::string& gameName, bool) {
     char* pref = SDL_GetPrefPath("gmrunner", gameName.c_str());
     std::string p = pref ? pref : ("./saves/" + gameName);
     SDL_free(pref);
@@ -49,6 +50,8 @@ std::string targetSaveDir(const std::string& gameName) {
 
 void targetShowError(const std::string& msg) { fprintf(stderr, "%s\n", msg.c_str()); }
 bool targetFrame() { return true; }
+bool targetSuspended() { return false; }
+void targetControllerSetup() {}
 void targetPollInput(Runner&, Buttons&, const RunOptions&, bool&) {}
 void targetWindowCreated(SDL_Window*) {}
 void targetSafeArea(SDL_Window*, double inset[4]) { inset[0] = inset[1] = inset[2] = inset[3] = 0; }

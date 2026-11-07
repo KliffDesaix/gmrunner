@@ -1,5 +1,5 @@
-// The in-game menu: resume, the game's controls (what each button presses, the on-screen
-// controls, the menu button) and exit. Drawn by the runner over the paused game, so it is the
+// The in-game menu: resume, the game's controls (what each controller's buttons press, the
+// on-screen controls, the menu button) and exit. Drawn by the runner over the paused game, so it is the
 // same on every target; changes apply at once and are saved in the game's gmrunner.ini.
 #include <algorithm>
 #include <cmath>
@@ -15,8 +15,8 @@ namespace gm::host {
 
 namespace {
 
-enum Page { MAIN, CONTROLS, PICK };
-enum Kind { RESUME, OPEN_CONTROLS, TOUCH, SHORTCUT, EXIT, BACK, BUTTON, RESET, AUTO, NOTHING, PAD, KEY };
+enum Page { MAIN, PLAYERS, CONTROLS, PICK };
+enum Kind { RESUME, OPEN_CONTROLS, CONTROLLER_SETUP, TOUCH, SHORTCUT, EXIT, BACK, PLAYER, BUTTON, RESET, AUTO, NOTHING, PAD, KEY };
 
 struct Row {
     Kind kind;
@@ -132,17 +132,28 @@ namespace {
 
 std::vector<Row> buildRows(const GameMenu& menu, const HostInput& in) {
     std::vector<Row> rows;
-    const ButtonMap& m = in.buttons.map;
-    const ButtonMap& d = in.buttons.defaults;
+    const ButtonMap& m = in.buttons.maps[menu.player];
+    const ButtonMap& d = in.buttons.defaults[menu.player];
     if (menu.page == MAIN) {
         rows.push_back({RESUME, 0, "Resume"});
         rows.push_back({OPEN_CONTROLS, 0, "Controls"});
+        if (target().controllerSetup) rows.push_back({CONTROLLER_SETUP, 0, "Change grip/order"});
         if (target().touchControls) {
             static const char* const modes[3] = {"AUTO", "ON", "OFF"};
             rows.push_back({TOUCH, 0, "On-screen controls", modes[in.touchMode]});
             rows.push_back({SHORTCUT, 0, "Menu shortcut", kShortcutLabels[menu.shortcut]});
         }
         rows.push_back({EXIT, 0, "Exit game"});
+    } else if (menu.page == PLAYERS) {
+        // Which controller to set up: each has its own buttons (players 2-4 in games that only
+        // read the keyboard need keys of their own).
+        rows.push_back({BACK, 0, "< Back"});
+        for (int p = 0; p < Input::kPads; p++) {
+            const std::string& name = menu.padNames[p];
+            Row r{PLAYER, p, "Controller " + std::to_string(p + 1), name.empty() ? "NOT CONNECTED" : upper(name)};
+            for (bool set : in.buttons.maps[p].set) r.changed = r.changed || set;
+            rows.push_back(r);
+        }
     } else if (menu.page == CONTROLS) {
         rows.push_back({BACK, 0, "< Back"});
         for (int b : kButtonOrder) {
@@ -248,24 +259,31 @@ std::string niceKey(int vk) {  // "Space", "Z", "F1", "Numpad 1"
     return n;
 }
 
-// What a native menu (targetShowMenu) needs: every button's targets now and by default, the keys
-// and gamepad buttons to offer (ids as gmrunner.ini writes them), and the menu's settings.
+// What a native menu (targetShowMenu) needs: per controller (by number, with the name of the one
+// connected as it) every button's targets now and by default, the keys and gamepad buttons to
+// offer (ids as gmrunner.ini writes them), and the menu's settings.
 std::string menuJson(const GameMenu& menu, const HostInput& in) {
-    const ButtonMap& m = in.buttons.map;
-    const ButtonMap& d = in.buttons.defaults;
+    const ButtonMap& m = in.buttons.maps[0];  // what the game reads, the keys it checks: the same in every map
     static const char* const touchModes[3] = {"auto", "on", "off"};
     std::string s = "{\"ini\":" + jsonString(in.iniPath);
     s += ",\"readsKeyboard\":" + std::string(m.readsKeyboard ? "true" : "false");
     s += ",\"readsGamepad\":" + std::string(m.readsGamepad ? "true" : "false");
     s += ",\"touchMode\":" + jsonString(touchModes[in.touchMode]);
     s += ",\"shortcut\":" + jsonString(GameMenu::shortcutName(menu.shortcut));
-    s += ",\"buttons\":[";
-    for (int i = 0; i < GP_BUTTON_COUNT; i++) {
-        int b = kButtonOrder[i];
-        s += std::string(i ? "," : "") + "{\"id\":" + jsonString(buttonName(b)) + ",\"label\":" + jsonString(titleCase(kLabels[b])) +
-             ",\"pad\":" + jsonString(padTargetName(b)) +
-             ",\"set\":" + (m.set[b] ? "true" : "false") + ",\"targets\":" + jsonList(targetIds(m.pad[b], m.keys[b])) +
-             ",\"auto\":" + jsonList(targetIds(d.pad[b], d.keys[b])) + "}";
+    s += ",\"opener\":" + std::to_string(menu.opener);
+    s += ",\"controllers\":[";
+    for (int p = 0; p < Input::kPads; p++) {
+        const ButtonMap& pm = in.buttons.maps[p];
+        const ButtonMap& d = in.buttons.defaults[p];
+        s += std::string(p ? "," : "") + "{\"name\":" + jsonString(menu.padNames[p]) + ",\"buttons\":[";
+        for (int i = 0; i < GP_BUTTON_COUNT; i++) {
+            int b = kButtonOrder[i];
+            s += std::string(i ? "," : "") + "{\"id\":" + jsonString(buttonName(b)) + ",\"label\":" + jsonString(titleCase(kLabels[b])) +
+                 ",\"pad\":" + jsonString(padTargetName(b)) +
+                 ",\"set\":" + (pm.set[b] ? "true" : "false") + ",\"targets\":" + jsonList(targetIds(pm.pad[b], pm.keys[b])) +
+                 ",\"auto\":" + jsonList(targetIds(d.pad[b], d.keys[b])) + "}";
+        }
+        s += "]}";
     }
     s += "],\"keys\":[";
     std::vector<int> keys = offeredKeys(m);
@@ -293,8 +311,10 @@ void GameMenu::poll() {
     fprintf(stderr, "[menu] %s\n", exitRequested ? "exit" : "closed");
 }
 
-void GameMenu::show(Runner& rt) {
+void GameMenu::show(Runner& rt, int byController) {
     open = true;
+    opener = byController;
+    readPads(rt);
     page = MAIN;
     sel = 0;
     scroll = 0;
@@ -310,24 +330,28 @@ void GameMenu::show(Runner& rt) {
 
 namespace {
 
-void save(HostInput& in, int b) {
-    const ButtonMap& m = in.buttons.map;
-    setIni(in.iniPath, std::string("map_") + buttonName(b), m.set[b] ? targetsText(m.pad[b], m.keys[b]) : "");
+// map_a for controller 1, p2_map_a for controller 2, ...
+void save(HostInput& in, int player, int b) {
+    const ButtonMap& m = in.buttons.maps[player];
+    std::string key = (player ? "p" + std::to_string(player + 1) + "_" : "") + "map_" + buttonName(b);
+    setIni(in.iniPath, key, m.set[b] ? targetsText(m.pad[b], m.keys[b]) : "");
 }
 
 void activate(GameMenu& menu, HostInput& in, Runner& rt, const Row& row) {
-    ButtonMap& m = in.buttons.map;
-    const ButtonMap& d = in.buttons.defaults;
+    ButtonMap& m = in.buttons.maps[menu.player];
+    const ButtonMap& d = in.buttons.defaults[menu.player];
     auto changeButton = [&](int b, auto&& change) {
         in.buttons.releaseAll(rt);
         change();
         in.decideTouchControls();
-        save(in, b);
+        save(in, menu.player, b);
     };
     int b = menu.editing;
     switch (row.kind) {
         case RESUME: menu.open = false; break;
-        case OPEN_CONTROLS: menu.page = CONTROLS, menu.sel = 1, menu.scroll = 0; break;
+        case OPEN_CONTROLS: menu.page = PLAYERS, menu.sel = 1 + menu.opener, menu.scroll = 0; break;
+        case PLAYER: menu.player = row.arg, menu.page = CONTROLS, menu.sel = 1, menu.scroll = 0; break;
+        case CONTROLLER_SETUP: targetControllerSetup(); break;
         case TOUCH:
             in.touchMode = (in.touchMode + 1) % 3;
             in.decideTouchControls();
@@ -343,6 +367,8 @@ void activate(GameMenu& menu, HostInput& in, Runner& rt, const Row& row) {
             if (menu.page == PICK) {
                 menu.page = CONTROLS;
                 menu.sel = 1 + static_cast<int>(std::find(kButtonOrder, kButtonOrder + GP_BUTTON_COUNT, b) - kButtonOrder);
+            } else if (menu.page == CONTROLS) {
+                menu.page = PLAYERS, menu.sel = 1 + menu.player;
             } else {
                 menu.page = MAIN, menu.sel = 1;
             }
@@ -352,7 +378,7 @@ void activate(GameMenu& menu, HostInput& in, Runner& rt, const Row& row) {
         case RESET:
             in.buttons.releaseAll(rt);
             for (int i = 0; i < GP_BUTTON_COUNT; i++)
-                if (m.set[i]) m.set[i] = false, m.pad[i] = d.pad[i], m.keys[i] = d.keys[i], save(in, i);
+                if (m.set[i]) m.set[i] = false, m.pad[i] = d.pad[i], m.keys[i] = d.keys[i], save(in, menu.player, i);
             in.decideTouchControls();
             break;
         case AUTO: changeButton(b, [&] { m.set[b] = false, m.pad[b] = d.pad[b], m.keys[b] = d.keys[b]; }); break;
@@ -384,7 +410,7 @@ bool GameMenu::handleButton(Runner& rt, int source, int button, bool down) {
     if (!open) {
         // Start + Select held together open the menu (the second of them doesn't reach the game).
         if (down && (button == GP_START || button == GP_SELECT) && held[GP_START] && held[GP_SELECT]) {
-            show(rt);
+            show(rt, Buttons::player(rt, source));
             return true;
         }
         return false;
@@ -410,11 +436,21 @@ bool GameMenu::handleButton(Runner& rt, int source, int button, bool down) {
     return true;
 }
 
+void GameMenu::readPads(const Runner& rt) {
+    for (auto& n : padNames) n.clear();
+    for (int i = 0; i < Input::kPads; i++)
+        if (rt.input.pads[i].connected) {
+            std::string& n = padNames[Buttons::player(rt, i)];
+            n = rt.input.pads[i].name.empty() ? "Controller" : rt.input.pads[i].name;
+        }
+}
+
 void GameMenu::tick(Runner& rt, double now) {
     if (!open || native) {
         repeatDir = 0;
         return;
     }
+    readPads(rt);  // controllers come and go while it is open
     bool padUp = false, padDown = false;
     for (auto& held : input->buttons.held) padUp |= held[GP_PADU], padDown |= held[GP_PADD];
     float stick = rt.input.pads[0].axis[GP_AXISLV];
@@ -568,7 +604,10 @@ void GameMenu::draw(Renderer& r, int w, int h) {
     Geometry g = geometry(w, h, input->touchPad.inset, rows.size());
     p.rect(0, 0, w, h, black, 0.55);
     p.rect(g.x, g.y, g.w, g.h, panel, 0.94);
-    std::string title = page == MAIN ? "Paused" : page == CONTROLS ? "Controls" : std::string(kLabels[editing]) + " presses";
+    std::string title = page == MAIN      ? "Paused"
+                        : page == PLAYERS ? "Controls"
+                        : page == CONTROLS ? "Controller " + std::to_string(player + 1)
+                                           : "Controller " + std::to_string(player + 1) + ": " + kLabels[editing];
     p.text(g.x + 4 * g.px, g.y + 4 * g.px, g.px * 1.25, title, white, 1.0);
     p.rect(g.x, g.y + g.titleH - g.px, g.w, g.px * 0.5, white, 0.2);
     int first = static_cast<int>(std::floor(scroll));

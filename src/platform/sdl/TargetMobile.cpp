@@ -47,6 +47,7 @@ const TargetInfo& target() {
 #else
         true,   // returnToPicker
 #endif
+        false,  // controllerSetup
     };
     return info;
 }
@@ -135,7 +136,7 @@ bool targetNativePick(std::string& chosen) {
 }
 #endif
 
-std::string targetSaveDir(const std::string& gameName) { return gamesRoot() + "/Saves/" + gameName; }
+std::string targetSaveDir(const std::string& gameName, bool) { return gamesRoot() + "/Saves/" + gameName; }
 
 void targetShowError(const std::string& msg) {
     fprintf(stderr, "%s\n", msg.c_str());
@@ -143,6 +144,8 @@ void targetShowError(const std::string& msg) {
 }
 
 bool targetFrame() { return true; }
+bool targetSuspended() { return false; }  // SDL's background events instead (Main.cpp)
+void targetControllerSetup() {}
 void targetPollInput(Runner&, Buttons&, const RunOptions&, bool&) {}
 void targetGameChanged() {}
 

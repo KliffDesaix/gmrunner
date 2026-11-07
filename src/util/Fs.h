@@ -80,6 +80,29 @@ inline void removeTree(const std::string& path) {
     rmdir(path.c_str());
 }
 
+// cp -r: `to` gets everything in `from` (made as needed). False if anything failed to copy.
+inline bool copyTree(const std::string& from, const std::string& to) {
+    makeDirs(to);
+    DIR* d = opendir(from.c_str());
+    if (!d) return false;
+    bool ok = true;
+    while (dirent* e = readdir(d)) {
+        std::string n = e->d_name;
+        if (n == "." || n == "..") continue;
+        std::string a = from + "/" + n, b = to + "/" + n;
+        if (isDir(a)) {
+            ok = copyTree(a, b) && ok;
+            continue;
+        }
+        std::vector<uint8_t> data;
+        FILE* f = readFile(a, data) ? fopen(b.c_str(), "wb") : nullptr;
+        ok = f && (data.empty() || fwrite(data.data(), 1, data.size(), f) == data.size()) && ok;
+        if (f) ok = fclose(f) == 0 && ok;
+    }
+    closedir(d);
+    return ok;
+}
+
 inline std::string parentDir(const std::string& path) {
     size_t p = path.find_last_of('/');
     return p == std::string::npos ? std::string() : path.substr(0, p);

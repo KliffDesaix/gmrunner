@@ -30,6 +30,7 @@ struct TargetInfo {
     bool touchControls;    // on-screen controls on touchscreens unless a controller is connected
     bool orientFromGame;   // landscape or portrait screen to suit the game's window
     bool returnToPicker;   // a game's end brings back the game list instead of quitting (iOS)
+    bool controllerSetup;  // the system has a screen to connect and order controllers (Switch)
 };
 const TargetInfo& target();
 
@@ -43,9 +44,17 @@ std::vector<std::string> targetGameList();
 std::vector<std::string> targetPickerHelp();
 // A launcher of the platform's own (iOS); false to use the drawn picker.
 bool targetNativePick(std::string& chosen);
-std::string targetSaveDir(const std::string& gameName);
+// Where the game's saves go. perProfile (gmrunner.ini profile_saves): the Switch keeps saves per
+// user profile, asking which one plays.
+std::string targetSaveDir(const std::string& gameName, bool perProfile);
 void targetShowError(const std::string& msg);  // stderr, plus whatever screen the target has
 bool targetFrame();  // once per frame; false when the system asks the program to exit
+// The system has the screen (the Switch's HOME menu, sleep): the game waits, silent, until it
+// is back. Checked after targetFrame.
+bool targetSuspended();
+// The system's controller screen (Switch: Change Grip/Order, where two players can each take a
+// single Joy-Con); returns when it closes. Only where TargetInfo::controllerSetup is set.
+void targetControllerSetup();
 // Controllers the target reads itself instead of through SDL (the Switch's libnx pads).
 void targetPollInput(Runner& rt, Buttons& buttons, const RunOptions& opt, bool& quit);
 void targetGameChanged();  // a new Runner: controllers are announced to it again

@@ -76,16 +76,22 @@ class MenuActivity : ComponentActivity() {
 
 class MenuTarget(val id: String, val name: String, val inGame: Boolean)
 
-// One button: what it presses ("targets", ids as gmrunner.ini writes them) and what it would
-// press automatically; `pad` is its own gamepad button.
-class MenuButton(val id: String, val label: String, val pad: String, set: Boolean, targets: List<String>, val auto: List<String>) {
+// One button of a controller (`player`: 0 is controller 1): what it presses ("targets", ids as
+// gmrunner.ini writes them) and what it would press automatically; `pad` is its own gamepad button.
+class MenuButton(val player: Int, val id: String, val label: String, val pad: String, set: Boolean, targets: List<String>, val auto: List<String>) {
     var set by mutableStateOf(set)
     var targets by mutableStateOf(targets)
 }
 
+// A controller, by its number (the second connected controller is controller 2): the name of the
+// one connected as it ("" when none is) and its buttons.
+class MenuController(val name: String, val buttons: List<MenuButton>) {
+    val shownName get() = name.ifEmpty { "Not connected" }
+}
+
 class MenuInfo(
     val dir: File, val title: String, val readsKeyboard: Boolean, val readsGamepad: Boolean,
-    touchMode: String, shortcut: String, val buttons: List<MenuButton>, val keys: List<MenuTarget>, val pads: List<MenuTarget>,
+    touchMode: String, shortcut: String, val controllers: List<MenuController>, val keys: List<MenuTarget>, val pads: List<MenuTarget>,
 ) {
     var touchMode by mutableStateOf(touchMode)
     var shortcut by mutableStateOf(shortcut)
@@ -110,7 +116,8 @@ class MenuInfo(
         save(b)
     }
 
-    private fun save(b: MenuButton) = Games.writeIniKey(dir, "map_${b.id}",
+    // map_a for controller 1, p2_map_a for controller 2, ...
+    private fun save(b: MenuButton) = Games.writeIniKey(dir, (if (b.player == 0) "" else "p${b.player + 1}_") + "map_${b.id}",
         if (!b.set) null else if (b.targets.isEmpty()) "none" else b.targets.joinToString(" "))
 
     fun changeTouchMode(mode: String) {
@@ -132,14 +139,18 @@ class MenuInfo(
                 val t = a.getJSONObject(it)
                 MenuTarget(t.getString("id"), t.getString("name"), t.optBoolean("inGame"))
             }
-            val buttons = o.optJSONArray("buttons") ?: JSONArray()
+            val controllers = o.optJSONArray("controllers") ?: JSONArray()
             return MenuInfo(
                 dir, Games.load(dir).title, o.optBoolean("readsKeyboard"), o.optBoolean("readsGamepad"),
                 o.optString("touchMode", "auto"), o.optString("shortcut", "button"),
-                List(buttons.length()) {
-                    val b = buttons.getJSONObject(it)
-                    MenuButton(b.getString("id"), b.getString("label"), b.getString("pad"), b.optBoolean("set"),
-                        strings(b.getJSONArray("targets")), strings(b.getJSONArray("auto")))
+                List(controllers.length()) { player ->
+                    val c = controllers.getJSONObject(player)
+                    val buttons = c.optJSONArray("buttons") ?: JSONArray()
+                    MenuController(c.optString("name"), List(buttons.length()) {
+                        val b = buttons.getJSONObject(it)
+                        MenuButton(player, b.getString("id"), b.getString("label"), b.getString("pad"), b.optBoolean("set"),
+                            strings(b.getJSONArray("targets")), strings(b.getJSONArray("auto")))
+                    })
                 },
                 targets(o.optJSONArray("keys") ?: JSONArray()), targets(o.optJSONArray("pads") ?: JSONArray()),
             )
@@ -151,13 +162,18 @@ class MenuInfo(
 @Composable
 fun GameMenu(info: MenuInfo, onClose: (exit: Boolean) -> Unit) {
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var controller by remember { mutableStateOf<Int?>(null) }
     var editing by remember { mutableStateOf<MenuButton?>(null) }
     ModalBottomSheet(onDismissRequest = { onClose(false) }, sheetState = sheet) {
-        BackHandler(enabled = editing != null) { editing = null }
+        BackHandler(enabled = controller != null) { if (editing != null) editing = null else controller = null }
         LazyColumn(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
+            val c = controller
             val b = editing
-            if (b == null) mainPage(info, onEdit = { editing = it }, onClose = onClose)
-            else buttonPage(info, b, onBack = { editing = null })
+            when {
+                b != null -> buttonPage(info, b, onBack = { editing = null })
+                c != null -> controllerPage(info, c, onEdit = { editing = it }, onBack = { controller = null })
+                else -> mainPage(info, onPick = { controller = it }, onClose = onClose)
+            }
         }
     }
 }
@@ -167,7 +183,15 @@ private fun LazyListScope.sectionTitle(text: String) = item {
         modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 4.dp))
 }
 
-private fun LazyListScope.mainPage(info: MenuInfo, onEdit: (MenuButton) -> Unit, onClose: (Boolean) -> Unit) {
+private fun LazyListScope.pageTitle(text: String, onBack: () -> Unit) = item {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+        Text(text, style = MaterialTheme.typography.headlineSmall)
+    }
+}
+
+private fun LazyListScope.mainPage(info: MenuInfo, onPick: (Int) -> Unit, onClose: (Boolean) -> Unit) {
     item {
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(info.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -180,13 +204,18 @@ private fun LazyListScope.mainPage(info: MenuInfo, onEdit: (MenuButton) -> Unit,
         }
     }
     sectionTitle("Controls")
-    items(info.buttons, key = { it.id }) { b ->
+    items(info.controllers.size) { c ->
         ListItem(
-            modifier = Modifier.clickable { onEdit(b) }.padding(horizontal = 8.dp),
+            modifier = Modifier.clickable { onPick(c) }.padding(horizontal = 8.dp),
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            headlineContent = { Text(b.label) },
-            trailingContent = { Text(info.summary(b.targets, b.pad), color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            headlineContent = { Text("Controller ${c + 1}") },
+            trailingContent = { Text(info.controllers[c].shownName, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         )
+    }
+    item {
+        Text("Each controller has its own buttons. For co-op in a game that only reads the keyboard, give controllers 2 to 4 keys of their own.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
     }
     sectionTitle("On-screen controls")
     item {
@@ -225,14 +254,25 @@ private fun LazyListScope.mainPage(info: MenuInfo, onEdit: (MenuButton) -> Unit,
     }
 }
 
-private fun LazyListScope.buttonPage(info: MenuInfo, b: MenuButton, onBack: () -> Unit) {
+// What one controller's buttons press.
+private fun LazyListScope.controllerPage(info: MenuInfo, c: Int, onEdit: (MenuButton) -> Unit, onBack: () -> Unit) {
+    pageTitle("Controller ${c + 1}", onBack)
     item {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
-            Text("${b.label} button", style = MaterialTheme.typography.headlineSmall)
-        }
+        Text(info.controllers[c].shownName, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
     }
+    items(info.controllers[c].buttons, key = { it.id }) { b ->
+        ListItem(
+            modifier = Modifier.clickable { onEdit(b) }.padding(horizontal = 8.dp),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            headlineContent = { Text(b.label) },
+            trailingContent = { Text(info.summary(b.targets, b.pad), color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        )
+    }
+}
+
+private fun LazyListScope.buttonPage(info: MenuInfo, b: MenuButton, onBack: () -> Unit) {
+    pageTitle(if (b.player == 0) "${b.label} button" else "Controller ${b.player + 1}: ${b.label} button", onBack)
     item {
         ListItem(
             modifier = Modifier.clickable { info.setAutomatic(b, b.set) }.padding(horizontal = 8.dp),

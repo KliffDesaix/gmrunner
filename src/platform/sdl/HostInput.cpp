@@ -258,17 +258,24 @@ void HostInput::update(Runner& rt, SdlPlatform& platform, const RunOptions& opt)
         touchPad.visible = show;
         if (show && !rt.input.pads[0].connected) rt.input.pads[0].connected = true, rt.input.pads[0].name = "Touch controls";
     }
-    // Pad 0's left stick also presses the keys the d-pad does, for games that only read the keyboard.
-    {
-        auto& p0 = rt.input.pads[0];
-        bool st[4] = {p0.axis[GP_AXISLH] < -0.5f, p0.axis[GP_AXISLH] > 0.5f, p0.axis[GP_AXISLV] < -0.5f,
-                      p0.axis[GP_AXISLV] > 0.5f};
+    // A controller's left stick also presses the keys its d-pad does, while the game isn't
+    // reading that controller's sticks itself.
+    for (int i = 0; i < Input::kPads; i++) {
+        auto& p = rt.input.pads[i];
+        const ButtonMap& m = buttons.maps[Buttons::player(rt, i)];
+        bool on = p.connected && !rt.input.padHeard(i, -1, rt.stepCount);
+        bool st[4] = {on && p.axis[GP_AXISLH] < -0.5f, on && p.axis[GP_AXISLH] > 0.5f,
+                      on && p.axis[GP_AXISLV] < -0.5f, on && p.axis[GP_AXISLV] > 0.5f};
         static const int stickDir[4] = {GP_PADL, GP_PADR, GP_PADU, GP_PADD};
-        for (int k = 0; k < 4; k++)
-            if (st[k] != stickKey[k]) {
-                for (int vk : buttons.map.keys[stickDir[k]]) buttons.key(rt, vk, st[k]);
-                stickKey[k] = st[k];
-            }
+        static const std::vector<int> none;
+        for (int k = 0; k < 4; k++) {
+            const std::vector<int>& want = st[k] ? m.keys[stickDir[k]] : none;
+            std::vector<int>& held = stickKeys[i][k];
+            if (want == held) continue;
+            for (int vk : held) buttons.key(rt, vk, false);
+            for (int vk : want) buttons.key(rt, vk, true);
+            held = want;
+        }
     }
     // Stick-driven pointer (games that read the mouse): the stick moves it, ZR is the left button
     // and ZL the right one; drawn over the frame unless the game hides the cursor.
@@ -321,29 +328,44 @@ void HostInput::setGame(const DataWin& dw, const RunOptions& opt) {
     usesMouse = gameUsesMouse(dw);
     iniPath = opt.gameDir + "/gmrunner.ini";
     buttons.reset();
-    buttons.defaults = makeButtonMap(dw, opt);
-    buttons.map = buttons.defaults;
-    applyButtonChoices(buttons.map, opt.buttonMap);
+    // Controllers 2-4 press only their own gamepad's buttons unless keys are chosen for them:
+    // the keyboard defaults are controller 1's.
+    buttons.defaults[0] = makeButtonMap(dw, opt);
+    for (int p = 1; p < Input::kPads; p++) {
+        buttons.defaults[p] = buttons.defaults[0];
+        for (auto& k : buttons.defaults[p].keys) k.clear();
+    }
+    for (int p = 0; p < Input::kPads; p++) {
+        buttons.maps[p] = buttons.defaults[p];
+        applyButtonChoices(buttons.maps[p], opt.buttonMap[p]);
+    }
     touchMode = opt.touchControls;
     decideTouchControls();
     menu.shortcut = opt.menuShortcut;
     menu.open = menu.exitRequested = false;
-    for (bool& k : stickKey) k = false;
-    if (!opt.hidden && !opt.headless) fprintf(stderr, "[input] %s\n", describeButtonMap(buttons.map).c_str());
+    for (auto& pad : stickKeys)
+        for (auto& k : pad) k.clear();
+    if (!opt.hidden && !opt.headless) {
+        fprintf(stderr, "[input] %s\n", describeButtonMap(buttons.maps[0]).c_str());
+        for (int p = 1; p < Input::kPads; p++)
+            if (!opt.buttonMap[p].empty()) fprintf(stderr, "[input] controller %d %s\n", p + 1, describeButtonMap(buttons.maps[p]).c_str());
+    }
 }
 
 void HostInput::reloadSettings() {
     RunOptions o;
     loadConfig(iniPath, o);
-    buttons.map = buttons.defaults;
-    applyButtonChoices(buttons.map, o.buttonMap);
+    for (int p = 0; p < Input::kPads; p++) {
+        buttons.maps[p] = buttons.defaults[p];
+        applyButtonChoices(buttons.maps[p], o.buttonMap[p]);
+    }
     touchMode = o.touchControls;
     menu.shortcut = o.menuShortcut;
     decideTouchControls();
 }
 
 void HostInput::decideTouchControls() {
-    ButtonMap& m = buttons.map;
+    ButtonMap& m = buttons.maps[0];  // the on-screen pad is controller 1
     decideOnScreen(m);
     bool any = false;
     for (bool b : m.onScreen) any = any || b;
@@ -356,7 +378,8 @@ void HostInput::decideTouchControls() {
 void HostInput::announcePads(Runner& rt) {
     for (int i = 0; i < Input::kPads; i++)
         if (pads[i]) describePad(rt.input.pads[i], pads[i]);
-    for (bool& k : stickKey) k = false;
+    for (auto& pad : stickKeys)
+        for (auto& k : pad) k.clear();
 }
 
 void HostInput::openExisting(Runner& rt) {

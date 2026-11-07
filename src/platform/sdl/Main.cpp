@@ -249,7 +249,7 @@ int runOnce(int argc, char** argv) {
         Runner rt(*dw, none, opt.gameDir, "");
         bool ok = rt.printCompatibilityReport();
         ButtonMap m = makeButtonMap(*dw, opt);
-        applyButtonChoices(m, opt.buttonMap);
+        applyButtonChoices(m, opt.buttonMap[0]);
         printf("\n%s\n", describeButtonMap(m).c_str());
         return ok ? 0 : 1;
     }
@@ -295,7 +295,7 @@ int runOnce(int argc, char** argv) {
     std::unique_ptr<Runner> rt;
     SDL_AudioDeviceID audioDev = 0;
     auto startGame = [&](const std::vector<std::string>& params) {
-        std::string saveDir = opt.saveDir.empty() ? targetSaveDir(gameName) : opt.saveDir;
+        std::string saveDir = opt.saveDir.empty() ? targetSaveDir(gameName, opt.profileSaves) : opt.saveDir;
         makeDirs(saveDir);
         rt = std::make_unique<Runner>(*dw, platform, opt.gameDir, saveDir);
         rt->parameters = params;
@@ -398,11 +398,19 @@ int runOnce(int argc, char** argv) {
     while (!quit) {
         if (!targetFrame()) break;
         SDL_Event e;
-        if (SDL_AtomicGet(&gBackground)) {  // in the background: no drawing, no sound, just wait
+        // In the background (a phone's home screen, the Switch's HOME menu): no drawing, no sound,
+        // the game waits.
+        auto away = [] { return SDL_AtomicGet(&gBackground) || targetSuspended(); };
+        if (away()) {
+            fprintf(stderr, "[run] in the background at frame %ld: paused\n", frame);
             if (audioDev) SDL_PauseAudioDevice(audioDev, 1);
             input.touchPad.releaseAll(*rt);
-            while (SDL_AtomicGet(&gBackground) && !quit)
-                if (SDL_WaitEventTimeout(&e, 200)) input.handleEvent(e, *rt, platform, opt, quit);
+            while (away() && !quit) {
+                if (SDL_WaitEventTimeout(&e, 100)) input.handleEvent(e, *rt, platform, opt, quit);
+                if (!targetFrame()) quit = true;
+            }
+            if (quit) break;
+            fprintf(stderr, "[run] back in the foreground: resumed\n");
             if (audioDev) SDL_PauseAudioDevice(audioDev, 0);
             nextFrame = platform.now();  // don't race to catch up on the time away
             continue;

@@ -116,8 +116,9 @@ void DevTools::beforeStep(Runner& rt, Buttons& buttons, const DataWin& dw, const
         int vk = std::get<1>(opt.script[scriptPos]);
         bool down = std::get<2>(opt.script[scriptPos]);
         if (vk >= kScriptPad) {
-            rt.input.pads[0].connected = true;
-            buttons.press(rt, 0, vk - kScriptPad, down);
+            int pad = (vk - kScriptPad) / GP_BUTTON_COUNT;
+            rt.input.pads[pad].connected = true;
+            buttons.press(rt, pad, (vk - kScriptPad) % GP_BUTTON_COUNT, down);
         } else if (vk >= kScriptMouse) {
             rt.input.mouseButton(vk - kScriptMouse, down);
         } else {

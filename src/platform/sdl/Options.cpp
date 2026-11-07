@@ -52,12 +52,17 @@ void parseScript(const std::string& s, RunOptions& o, bool press) {
                 o.mouseScript.emplace_back(frame, atof(pos.substr(0, semi).c_str()), atof(pos.substr(semi + 1).c_str()));
             continue;
         }
-        // Pad 0's buttons: ZL, ZR, or PAD0..PAD15 (gp_face1 = PAD0 ... gp_padr = PAD15).
+        // Pad 0's buttons: ZL, ZR, or PAD0..PAD15 (gp_face1 = PAD0 ... gp_padr = PAD15); another
+        // player's controller with P2PAD0 ... P4PAD15.
+        int player = 0;
+        if (key.size() > 5 && key[0] == 'P' && key[1] >= '1' && key[1] <= '0' + Input::kPads && key.compare(2, 3, "PAD") == 0)
+            player = key[1] - '1', key.erase(0, 2);
         int vk = key == "LMB" ? kScriptMouse : key == "RMB" ? kScriptMouse + 1 : key == "MMB" ? kScriptMouse + 2
                  : key == "ZR"  ? kScriptPad + GP_SHOULDERRB : key == "ZL" ? kScriptPad + GP_SHOULDERLB
                  : key.rfind("PAD", 0) == 0 && key.size() > 3 && isdigit(static_cast<unsigned char>(key[3]))
                        ? kScriptPad + atoi(key.c_str() + 3)
                        : vkFromName(key);
+        if (vk >= kScriptPad) vk += player * GP_BUTTON_COUNT;
         if (press) {
             o.script.emplace_back(frame, vk, true);
             o.script.emplace_back(frame + 4, vk, false);
@@ -101,10 +106,14 @@ bool parseArgs(int argc, char** argv, RunOptions& opt, std::vector<std::string>&
         }
         else if (a == "--press") parseScript(next(), opt, true);
         else if (a == "--touch-controls") opt.touchControls = 1;
-        else if (a == "--map") {  // BUTTON=TARGETS, as map_<button> in gmrunner.ini
+        else if (a == "--map") {  // [p2_]BUTTON=TARGETS, as [p2_]map_<button> in gmrunner.ini
             std::string v = next();
             size_t eq = v.find('=');
-            if (eq != std::string::npos) opt.buttonMap.emplace_back(v.substr(0, eq), v.substr(eq + 1));
+            std::string name = v.substr(0, eq), button;
+            bool prefixed = name.size() > 3 && name[0] == 'p' && name[2] == '_';  // p2_a: controller 2
+            name = prefixed ? name.substr(0, 3) + "map_" + name.substr(3) : "map_" + name;
+            int pl = eq != std::string::npos ? mapKeyPlayer(name, button) : -1;
+            if (pl >= 0) opt.buttonMap[pl].emplace_back(button, v.substr(eq + 1));
         }
         else if (a == "--picker") opt.pickerRoot = next();
         else if (a == "--screenshot-dir") opt.screenshotDir = next();
@@ -131,11 +140,11 @@ bool parseArgs(int argc, char** argv, RunOptions& opt, std::vector<std::string>&
             printf("usage: gmrunner [game dir] [--check] [--smoke] [--headless|--hidden] [--frames N] [--fast] [--mute]\n"
                    "                [--screenshot F1,F2] [--screenshot-dir DIR] [--press F:KEY,...]\n"
                    "                [--input F:KEY:down|up,...] [--scale N] [--linear] [--rotate 90]\n"
-                   "                [--save-dir DIR] [--picker GAMES_DIR] [--touch-controls] [--map BUTTON=TARGETS]\n"
+                   "                [--save-dir DIR] [--picker GAMES_DIR] [--touch-controls] [--map [p2_]BUTTON=TARGETS]\n"
                    "       gmrunner [game dir] --check     report whether a game is likely to run\n"
                    "debugging: --goto ROOM@F, --create OBJECT|SEQUENCE[:x:y]@F, --set OBJECT.VAR=N@F, --set global.VAR=N@F,\n"
-                   "           --count OBJECT[,OBJECT...]@F or all@F; --press/--input take PAD0..PAD15 for pad buttons,\n"
-                   "           LMB/RMB/MMB for mouse buttons, F:AT:X;Y to move the mouse and F:LS:X;Y / F:RS:X;Y for sticks\n"
+                   "           --count OBJECT[,OBJECT...]@F or all@F; --press/--input take PAD0..PAD15 for pad buttons\n"
+                   "           (P2PAD0..P4PAD15: players 2-4), LMB/RMB/MMB for mouse buttons, F:AT:X;Y to move the mouse and F:LS:X;Y / F:RS:X;Y for sticks\n"
                    "\ngmRunner is free software under the GNU GPL version 3 or later, with NO WARRANTY.\n"
                    "Source and third-party licenses: https://github.com/KliffDesaix/gmrunner\n");
             return false;
@@ -167,12 +176,15 @@ void loadConfig(const std::string& path, RunOptions& o) {
         else if (k == "mouse_speed") o.mouseSpeed = atof(v.c_str());
         else if (k == "touch") o.touch = b;
         else if (k == "touch_controls") o.touchControls = v == "on" || v == "1" ? 1 : v == "off" || v == "0" ? 2 : 0;
+        else if (k == "profile_saves") o.profileSaves = b;
         else if (k == "menu_shortcut") o.menuShortcut = GameMenu::shortcutFromName(v);
-        // What a button presses: map_a = gp_face1 Z (see Buttons.cpp). The command line wins.
-        else if (k.rfind("map_", 0) == 0) {
+        // What a button presses: map_a = gp_face1 Z (see Buttons.cpp), p2_map_a = ... on
+        // controller 2. The command line wins.
+        else if (std::string button; mapKeyPlayer(k, button) >= 0) {
+            auto& list = o.buttonMap[mapKeyPlayer(k, button)];
             bool given = false;
-            for (auto& [b, t] : o.buttonMap) given = given || b == k.substr(4);
-            if (!given) o.buttonMap.emplace_back(k.substr(4), v);
+            for (auto& [b, t] : list) given = given || b == button;
+            if (!given) list.emplace_back(button, v);
         }
         // Diagnostics, for the log file on a console: room changes and sounds, and every call to
         // the listed engine functions with arguments and result (as GMR_TRACE_CALL).

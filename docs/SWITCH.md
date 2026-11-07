@@ -96,7 +96,14 @@ shows up as its own entry in the Homebrew Menu and starts that game directly (no
 `tools/make-game-nro.sh` builds one on its own and takes `--icon`, `--author` and `--bg`. The
 NRO holds no game files: the game stays a folder on the SD card, copied from your own copy.
 
-Saves go to `sdmc:/switch/gmrunner/saves/<game>/`.
+Each user profile on the console has its own saves, in
+`sdmc:/switch/gmrunner/profiles/<account id>/<game>/` (`profile.txt` in the account folder
+holds the nickname). When a game starts, the system's "Who is playing?" screen asks for the
+profile. It doesn't ask when the console has only one profile, or when the profile was chosen
+on launch (a forwarder whose title asks for one). Press B on that screen, or set
+`profile_saves = 0` in the game's `gmrunner.ini`, to use the saves all profiles share in
+`sdmc:/switch/gmrunner/saves/<game>/` (where every save went before profiles). The first time
+a profile plays a game, its saves start as a copy of those shared ones.
 
 ## 3. Launch with full memory
 
@@ -131,30 +138,55 @@ position (right = A, bottom = B, top = X, left = Y), SL/SR are L/R, its `+` or `
 and its stick is the left stick. So two separate Joy-Cons make two players with nothing to
 rebind (local 2-player games, for example).
 
-Each button also presses keys, so games that only read the keyboard work with a controller.
-Which keys depends on the game: see [Button mapping](#button-mapping).
+Which controller is which player is set on the system's **Change Grip/Order** screen, opened
+from the in-game menu: there a Joy-Con pair, a Pro Controller or a single Joy-Con held sideways
+(press SL + SR) each become a player, in the order they join.
+
+The first controller also presses keys, so games that only read the keyboard work with a
+controller. Which keys depends on the game: see [Button mapping](#button-mapping). By default
+only the first one does: the others press just their own gamepad's buttons, so in a 2-player
+game that reads both the keyboard and gamepads, player 2 doesn't also move player 1. For a
+co-op game that only reads the keyboard, give controller 2 (3, 4) the keys of player 2 in the
+Controls page.
+
+A game's own controller support comes first: a button presses its keys only while the game
+isn't reading that button from that controller as a gamepad. A game with gamepad support hears
+the gamepad alone (one press, not two; its button prompts show the controller), while a menu
+that only reads the keyboard still gets the keys. A button set to press only keys (no gamepad
+button) always presses them.
+
+The game pauses (picture and sound) while the HOME menu is open or the console sleeps, and
+carries on where it was when it is back.
 
 ### The in-game menu
 
 Holding **+ and -** together (Start and Select on other controllers) pauses the game and opens
-the menu: Resume, Controls (what each button presses), and Exit game, which returns to the game
-list (or to the Homebrew Menu). On phones the menu also opens from a button on the screen; see
+the menu: Resume, Controls (what each controller's buttons press, chosen per controller),
+Change grip/order (the system's
+controller screen), and Exit game, which returns to the game list (or to the Homebrew Menu). On phones the menu also opens from a button on the screen; see
 [MOBILE.md](MOBILE.md).
 
 ### Button mapping
 
-Every button presses the game's own gamepad button plus some keys. The keys are chosen per
+Every button presses the game's own gamepad button plus, on the first controller, some keys
+(while the game isn't reading that gamepad button itself). The keys are chosen per
 game from what its code checks: a game that reads Space and not Z gets Space on A, one that
 reads WASD gets WASD on the d-pad (with the arrows when it reads both), keys the usual ones
 miss go on X, R and L, and the on-screen controls on phones only show the buttons that do
-something. Change any of it in the menu's Controls page, or in the game's `gmrunner.ini`, one
-line per button:
+something. Change any of it in the menu's Controls page (first pick the controller: each has
+its own buttons), or in the game's `gmrunner.ini`, one line per button, `p2_` in front for
+controller 2 and so on:
 
 ```ini
 map_a = gp_face1 vk_space   ; the A button presses gamepad A and Space
 map_x = Q                   ; X presses only Q
 map_l = none                ; L does nothing
+p2_map_a = gp_face1 K       ; controller 2's A presses its gamepad A and K
+p2_map_up = I               ; controller 2's d-pad (and left stick) up presses I
 ```
+
+Controller 2 is the second connected controller (on the Switch, player 2 on the Change
+Grip/Order screen).
 
 Buttons: `a b x y l r l2 r2 select start l3 r3 up down left right`, named by position as on an
 Xbox controller and the on-screen pad (`a` is gp_face1: A on a Switch, or with
@@ -189,6 +221,7 @@ show_fps = 0
 mouse_stick = right     ; stick that moves the mouse pointer: right, left or off
 mouse_speed = 1.0       ; pointer speed, in screen heights per second at full tilt
 touch = 1               ; touchscreen drives the mouse
+profile_saves = 1       ; 0 = one set of saves for every user profile, no "Who is playing?"
 ; diagnostics, written to sdmc:/switch/gmrunner/gmrunner.log:
 trace = 0               ; 1 = log room changes and the sounds played
 trace_calls =           ; engine functions to log with arguments, e.g. audio_play_sound,audio_stop_sound

@@ -50,6 +50,7 @@ struct RunOptions {
     bool integerScale = false;
     int rotate = 0;
     bool padToKeys = true;
+    bool profileSaves = true;  // Switch: saves per user profile (gmrunner.ini profile_saves = no: shared)
     bool showFps = false;
     bool stats = false;
     bool xboxLayout = false;
@@ -60,8 +61,9 @@ struct RunOptions {
     bool touch = true;
     int touchControls = 0;  // on-screen controls: 0 auto (the target's default), 1 on, 2 off
     int menuShortcut = 0;  // how the in-game menu opens besides Start + Select: GameMenu::Shortcut
-    // What buttons press (gmrunner.ini map_<button> = ..., --map BUTTON=TARGETS): button name, targets.
-    std::vector<std::pair<std::string, std::string>> buttonMap;
+    // What buttons press, per controller: button name, targets. gmrunner.ini map_<button> = ...
+    // for controller 1, p2_map_<button> for controller 2 and so on; --map [p2_]BUTTON=TARGETS.
+    std::vector<std::pair<std::string, std::string>> buttonMap[Input::kPads];
     std::string pickerRoot;  // --picker DIR: choose a game folder in DIR on screen
     bool screenCapture = false;
     bool gles = false;  // desktop: request an OpenGL ES 2 context (the console code path)
@@ -80,7 +82,7 @@ bool parseArgs(int argc, char** argv, RunOptions& o, std::vector<std::string>& p
 // gmrunner.ini next to the game (applied after the command line has picked the game).
 void loadConfig(const std::string& path, RunOptions& o);
 constexpr int kScriptMouse = 100000;  // scripted mouse buttons: kScriptMouse + 0/1/2 (left/right/middle)
-constexpr int kScriptPad = 200000;    // scripted pad 0 buttons: kScriptPad + GP_* button
+constexpr int kScriptPad = 200000;    // scripted pad buttons: kScriptPad + pad * GP_BUTTON_COUNT + GP_* button
 
 // ---- Files.cpp
 // The data file in a game folder (Windows, Linux, Android, macOS/iOS layouts), or "".
@@ -152,6 +154,9 @@ ButtonMap makeButtonMap(const DataWin& dw, const RunOptions& opt);  // the game'
 // The player's choices (button name, targets: RunOptions::buttonMap) over the defaults.
 void applyButtonChoices(ButtonMap& m, const std::vector<std::pair<std::string, std::string>>& choices);
 void decideOnScreen(ButtonMap& m);  // again after a button changes
+// "map_a" -> controller 0, "p2_map_a" -> 1 (the gmrunner.ini keys), with `button` = "a"; -1 if
+// it is neither.
+int mapKeyPlayer(const std::string& key, std::string& button);
 // map_<name>: a b x y (by position: a is the bottom one) l r l2 r2 select start l3 r3 up down left right.
 const char* buttonName(int gp);
 int buttonFromName(const std::string& name);  // -1 if unknown
@@ -164,8 +169,11 @@ std::string describeButtonMap(const ButtonMap& m);  // one line for the log
 
 struct Buttons {
     static constexpr int kOnScreen = Input::kPads;  // the on-screen pad's source slot (game pad 0)
-    ButtonMap map;
-    ButtonMap defaults;  // the map without the player's choices ("auto")
+    // Per controller, by its number (player()): what its buttons press. Each controller presses
+    // its own gamepad's buttons; by default only controller 1 also presses keys, the others
+    // press the keys chosen for them (co-op in games that only read the keyboard).
+    ButtonMap maps[Input::kPads];
+    ButtonMap defaults[Input::kPads];  // the maps without the player's choices ("auto")
     bool held[Input::kPads + 1][GP_BUTTON_COUNT] = {};  // what the player holds, per source, by position
     // Sees every press first (the in-game menu); true keeps it from the game.
     std::function<bool(Runner& rt, int source, int button, bool down)> intercept;
@@ -173,9 +181,19 @@ struct Buttons {
     void key(Runner& rt, int vk, bool down);  // a key outside the map (the stick as d-pad)
     void releaseAll(Runner& rt);              // before the map changes
     void reset();                             // a new Runner: nothing is held in it
+    // A source's controller number (0 = controller 1): its place among the connected controllers,
+    // so the second controller is controller 2 whichever slot it is in. The on-screen pad is 0.
+    static int player(const Runner& rt, int source);
+    // Whether a press on gamepad `pad` also presses the keys `m` gives the button: not while the
+    // game reads one of the gamepad buttons it presses from that gamepad. A game with controller
+    // support hears the press there already; the key too would be a second press (a menu moving
+    // twice, button prompts showing the keyboard).
+    static bool typesKeys(const Runner& rt, int pad, const ButtonMap& m, int button);
 
 private:
     void route(Runner& rt, int source, int button, bool down);
+    bool typed[Input::kPads + 1][GP_BUTTON_COUNT] = {};  // the press also pressed the button's keys
+    int pressedAs[Input::kPads + 1][GP_BUTTON_COUNT] = {};  // controller number + 1 a held button went through
     int padCount[Input::kPads][GP_BUTTON_COUNT] = {};
     int keyCount[Input::kKeys] = {};
 };
@@ -222,7 +240,7 @@ struct GameMenu {
     bool handleEvent(const SDL_Event& e, Runner& rt, SdlPlatform& platform);
     // Controller buttons (through Buttons::intercept): navigation while open, Start + Select to open.
     bool handleButton(Runner& rt, int source, int button, bool down);
-    void show(Runner& rt);
+    void show(Runner& rt, int byController = 0);  // the controller that opened it, if one did
     void poll();  // each frame while open: a native menu (targetShowMenu) closing
     // Each frame while open: the left stick moves the selection too, and a held direction repeats.
     void tick(Runner& rt, double now);
@@ -232,6 +250,10 @@ struct GameMenu {
 
     // (GameMenu.cpp)
     int page = 0, sel = 0, editing = -1;
+    int player = 0;  // the controller the Controls page is for
+    int opener = 0;  // the controller that opened the menu (preselected on the Controls page)
+    std::string padNames[Input::kPads];  // the connected controllers, by number (Buttons::player)
+    void readPads(const Runner& rt);
     double scroll = 0;
     std::vector<SDL_FingerID> touches;  // fingers down (three at once open the menu)
     bool tracking = false, dragged = false, onButton = false;
@@ -248,7 +270,7 @@ struct GameMenu {
 struct HostInput {
     std::vector<SDL_GameController*> pads = std::vector<SDL_GameController*>(Input::kPads, nullptr);
     Buttons buttons;
-    bool stickKey[4] = {};
+    std::vector<int> stickKeys[Input::kPads][4];  // the keys each controller's left stick holds down
     bool usesMouse = false;
     double vmX = -1, vmY = -1;  // stick pointer in drawable pixels
     double insetCheck = -1;     // when the safe area was last read

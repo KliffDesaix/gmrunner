@@ -1,6 +1,7 @@
 // Nintendo Switch homebrew target (devkitPro libnx + SDL2): a log file on the SD card, games from
 // the NRO's romfs or sdmc:/switch/gmrunner/games, a text-console game picker and error screen,
-// and controllers read through libnx (single Joy-Cons held sideways included).
+// controllers read through libnx (single Joy-Cons held sideways included) and the system's
+// controller screen, a pause while the HOME menu is up, and saves per user profile.
 #ifdef __SWITCH__
 
 #include <switch.h>
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "platform/sdl/Host.h"
 #include "platform/sdl/Target.h"
@@ -33,6 +35,7 @@ const TargetInfo& target() {
         false,  // touchControls
         false,  // orientFromGame
         false,  // returnToPicker
+        true,   // controllerSetup: Change Grip/Order
     };
     return info;
 }
@@ -49,6 +52,8 @@ struct SwitchPads {
     PadState pad[Input::kPads];
     u64 prev[Input::kPads] = {};
     bool connected[Input::kPads] = {};
+    u32 style[Input::kPads] = {};  // what is connected: a Pro Controller, a Joy-Con pair, one Joy-Con
+    bool reassigned = false;       // the controller screen may have moved controllers between players
 } swPads;
 
 void initPads() {
@@ -199,7 +204,80 @@ std::vector<std::string> targetGameList() { return {}; }
 std::vector<std::string> targetPickerHelp() { return {}; }
 bool targetNativePick(std::string&) { return false; }
 
-std::string targetSaveDir(const std::string& gameName) { return "sdmc:/switch/gmrunner/saves/" + gameName; }
+namespace {
+
+// The user profile that plays, asked once per launch (a restart or game_change keeps it).
+struct Profile {
+    bool asked = false;
+    std::string id;    // the account's id in hex: stays the same when the nickname changes
+    std::string name;  // nickname, for the log and profile.txt
+} gProfile;
+
+void pickProfile() {
+    gProfile.asked = true;
+    Result rc = accountInitialize(AccountServiceType_Application);
+    if (R_FAILED(rc)) {
+        fprintf(stderr, "[switch] no account service (0x%x): saves shared by all profiles\n", rc);
+        return;
+    }
+    AccountUid uid{};
+    const char* how = nullptr;
+    s32 n = 0;
+    AccountUid all[ACC_USER_LIST_SIZE] = {};
+    // A forwarder or title started with a profile already chosen by the system.
+    if (R_SUCCEEDED(accountGetPreselectedUser(&uid)) && accountUidIsValid(&uid)) how = "chosen at launch";
+    else if (R_FAILED(rc = accountListAllUsers(all, ACC_USER_LIST_SIZE, &n)))
+        fprintf(stderr, "[switch] cannot list the profiles (0x%x)\n", rc);
+    else if (n == 1) uid = all[0], how = "the only profile";
+    else if (n > 1) {
+        // The system's "Who is playing?" screen. B leaves it: saves shared by all profiles.
+        PselUserSelectionSettings sel{};
+        rc = pselShowUserSelector(&uid, &sel);
+        if (R_SUCCEEDED(rc) && accountUidIsValid(&uid)) how = "picked";
+        else fprintf(stderr, "[switch] no profile picked (0x%x)\n", rc);
+    }
+    if (how) {
+        char id[33];
+        snprintf(id, sizeof id, "%016llx%016llx", static_cast<unsigned long long>(uid.uid[0]),
+                 static_cast<unsigned long long>(uid.uid[1]));
+        gProfile.id = id;
+        AccountProfile prof;
+        AccountProfileBase base{};
+        if (R_SUCCEEDED(accountGetProfile(&prof, uid))) {
+            if (R_SUCCEEDED(accountProfileGet(&prof, nullptr, &base)))
+                gProfile.name.assign(base.nickname, strnlen(base.nickname, sizeof base.nickname));
+            accountProfileClose(&prof);
+        }
+        fprintf(stderr, "[switch] profile %s (%s): %s\n", gProfile.name.c_str(), how, id);
+    } else fprintf(stderr, "[switch] saves shared by all profiles\n");
+    accountExit();
+}
+
+}  // namespace
+
+// sdmc:/switch/gmrunner/profiles/<account id>/<game>/ for the profile that plays, or
+// sdmc:/switch/gmrunner/saves/<game>/ when there is none (no profile picked, profile_saves = no).
+// A profile's first start of a game begins from the shared saves, as before profiles.
+std::string targetSaveDir(const std::string& gameName, bool perProfile) {
+    std::string shared = "sdmc:/switch/gmrunner/saves/" + gameName;
+    if (!perProfile) return shared;
+    if (!gProfile.asked) pickProfile();
+    if (gProfile.id.empty()) return shared;
+    std::string root = "sdmc:/switch/gmrunner/profiles/" + gProfile.id;
+    makeDirs(root);
+    // Which profile a folder belongs to, for looking at the SD card from a computer.
+    if (FILE* f = fopen((root + "/profile.txt").c_str(), "w")) {
+        fprintf(f, "%s\n", gProfile.name.c_str());
+        fclose(f);
+    }
+    std::string dir = root + "/" + gameName;
+    if (!isDir(dir) && isDir(shared)) {
+        bool ok = copyTree(shared, dir);
+        fprintf(stderr, "[switch] %s's saves start from the shared ones%s\n", gProfile.name.c_str(),
+                ok ? "" : " (some files could not be copied)");
+    }
+    return dir;
+}
 
 void targetShowError(const std::string& msg) {
     fprintf(stderr, "%s\n", msg.c_str());
@@ -225,6 +303,33 @@ bool targetFrame() {
     return false;
 }
 
+// The HOME menu, sleep, or another applet over the game (appletMainLoop keeps this up to date).
+bool targetSuspended() {
+    static AppletFocusState last = AppletFocusState_InFocus;
+    AppletFocusState f = appletGetFocusState();
+    if (f != last) {
+        last = f;
+        fprintf(stderr, "[switch] focus: %s\n", f == AppletFocusState_InFocus      ? "the game"
+                                                : f == AppletFocusState_OutOfFocus ? "another applet"
+                                                : f == AppletFocusState_Background ? "HOME menu or sleep"
+                                                                                   : "unknown");
+    }
+    return f == AppletFocusState_OutOfFocus || f == AppletFocusState_Background;
+}
+
+void targetControllerSetup() {
+    if (!swPads.ready) initPads();
+    HidLaControllerSupportArg arg;
+    hidLaCreateControllerSupportArg(&arg);  // up to 4 players, Joy-Con pairs allowed
+    arg.hdr.player_count_min = 1;
+    arg.hdr.player_count_max = Input::kPads;
+    HidLaControllerSupportResultInfo info = {};
+    Result rc = hidLaShowControllerSupport(&info, &arg);
+    if (R_SUCCEEDED(rc)) fprintf(stderr, "[switch] controller screen: %d players\n", info.player_count);
+    else fprintf(stderr, "[switch] controller screen closed (0x%x)\n", rc);
+    swPads.reassigned = true;
+}
+
 void targetPollInput(Runner& rt, Buttons& buttons, const RunOptions& opt, bool& quit) {
     if (!swPads.ready) initPads();
     static const std::pair<u64, int> kButtons[] = {
@@ -237,34 +342,39 @@ void targetPollInput(Runner& rt, Buttons& buttons, const RunOptions& opt, bool& 
     // Xbox layout: map by position (the bottom face button is gp_face1).
     static const std::pair<u64, int> kXbox[] = {{HidNpadButton_B, GP_FACE1}, {HidNpadButton_A, GP_FACE2},
                                                 {HidNpadButton_Y, GP_FACE3}, {HidNpadButton_X, GP_FACE4}};
+    bool reassigned = swPads.reassigned;
+    swPads.reassigned = false;
     for (int i = 0; i < Input::kPads; i++) {
         PadState& ps = swPads.pad[i];
         padUpdate(&ps);
         bool conn = padIsConnected(&ps);
+        u32 style = conn ? padGetStyleSet(&ps) : 0;
         auto& p = rt.input.pads[i];
-        if (conn != swPads.connected[i]) {
-            swPads.connected[i] = conn;
-            if (conn) {
-                p.connected = true;
-                u32 style = padGetStyleSet(&ps);
-                p.name = style & HidNpadStyleTag_NpadHandheld ? "Nintendo Switch Handheld"
-                         : style & HidNpadStyleTag_NpadJoyLeft ? "Joy-Con (L)"
-                         : style & HidNpadStyleTag_NpadJoyRight ? "Joy-Con (R)"
-                                                                : "Nintendo Switch Controller";
-                fprintf(stderr, "[input] controller %d connected: %s\n", i, p.name.c_str());
-            } else {
-                for (int b = 0; b < GP_BUTTON_COUNT; b++) buttons.press(rt, i, b, false);
-                p = Input::Pad();
-                swPads.prev[i] = 0;
-                fprintf(stderr, "[input] controller %d disconnected\n", i);
-            }
+        // A player whose controller changed (another one, a Joy-Con pair split up on the
+        // controller screen) lets go of everything first, as with a disconnect.
+        if (swPads.connected[i] && (!conn || style != swPads.style[i] || reassigned)) {
+            for (int b = 0; b < GP_BUTTON_COUNT; b++) buttons.press(rt, i, b, false);
+            p = Input::Pad();
+            swPads.prev[i] = 0;
+            swPads.connected[i] = false;
+            if (!conn) fprintf(stderr, "[input] controller %d disconnected\n", i);
+        }
+        if (conn && !swPads.connected[i]) {
+            swPads.connected[i] = true;
+            swPads.style[i] = style;
+            p.connected = true;
+            p.name = style & HidNpadStyleTag_NpadHandheld ? "Nintendo Switch Handheld"
+                     : style & HidNpadStyleTag_NpadJoyDual ? "Joy-Con (L/R)"
+                     : style & HidNpadStyleTag_NpadJoyLeft ? "Joy-Con (L)"
+                     : style & HidNpadStyleTag_NpadJoyRight ? "Joy-Con (R)"
+                                                            : "Nintendo Switch Controller";
+            fprintf(stderr, "[input] controller %d connected: %s (style 0x%x)\n", i, p.name.c_str(), style);
         }
         if (!conn) continue;
         u64 now = padGetButtons(&ps);
         // A single Joy-Con held sideways reports its buttons by their printed names; turn them
         // into the positions they have sideways (right = A, bottom = B, top = X, left = Y; SL/SR
         // = L/R), as Switch games do, and use its stick as the left stick.
-        u32 style = padGetStyleSet(&ps);
         bool singleL = (style & HidNpadStyleTag_NpadJoyLeft) && !(style & HidNpadStyleTag_NpadJoyDual);
         bool singleR = (style & HidNpadStyleTag_NpadJoyRight) && !(style & HidNpadStyleTag_NpadJoyDual);
         if (singleL || singleR) {

@@ -137,6 +137,15 @@ bool contains(const std::vector<int>& v, int x) { return std::find(v.begin(), v.
 const char* buttonName(int gp) { return gp >= 0 && gp < GP_BUTTON_COUNT ? kButtonNames[gp] : "?"; }
 const char* padTargetName(int gp) { return gp >= 0 && gp < GP_BUTTON_COUNT ? kPadNames[gp] : "?"; }
 
+int mapKeyPlayer(const std::string& key, std::string& button) {
+    int player = 0;
+    std::string k = lower(key);
+    if (k.size() > 3 && k[0] == 'p' && k[1] >= '1' && k[1] <= '9' && k[2] == '_') player = k[1] - '1', k = k.substr(3);
+    if (k.rfind("map_", 0) != 0 || player >= Input::kPads) return -1;
+    button = k.substr(4);
+    return player;
+}
+
 int buttonFromName(const std::string& name) {
     std::string n = lower(name);
     for (int b = 0; b < GP_BUTTON_COUNT; b++)
@@ -340,12 +349,35 @@ void Buttons::press(Runner& rt, int source, int button, bool down) {
 
 void Buttons::route(Runner& rt, int source, int button, bool down) {
     int pad = source == kOnScreen ? 0 : source;
-    for (int gp : map.pad[button]) {
+    // A release goes through the map its press did, though controllers came or went since.
+    int& as = pressedAs[source][button];
+    if (down) as = player(rt, source) + 1;
+    if (as == 0) return;
+    const ButtonMap& m = maps[as - 1];
+    if (!down) as = 0;
+    for (int gp : m.pad[button]) {
         int& n = padCount[pad][gp];
         n = std::max(0, n + (down ? 1 : -1));
         rt.input.padButton(pad, gp, n > 0);
     }
-    for (int vk : map.keys[button]) key(rt, vk, down);
+    bool& t = typed[source][button];
+    if (down && !typesKeys(rt, pad, m, button)) return;
+    if (t == down) return;
+    t = down;
+    for (int vk : m.keys[button]) key(rt, vk, down);
+}
+
+bool Buttons::typesKeys(const Runner& rt, int pad, const ButtonMap& m, int button) {
+    for (int gp : m.pad[button])
+        if (rt.input.padHeard(pad, gp, rt.stepCount)) return false;
+    return true;
+}
+
+int Buttons::player(const Runner& rt, int source) {
+    if (source < 0 || source >= kOnScreen) return 0;
+    int n = 0;
+    for (int i = 0; i < source; i++) n += rt.input.pads[i].connected;
+    return n;
 }
 
 void Buttons::key(Runner& rt, int vk, bool down) {
@@ -369,6 +401,10 @@ void Buttons::releaseAll(Runner& rt) {
 void Buttons::reset() {
     for (auto& s : held)
         for (bool& b : s) b = false;
+    for (auto& s : typed)
+        for (bool& b : s) b = false;
+    for (auto& s : pressedAs)
+        for (int& p : s) p = 0;
     for (auto& p : padCount)
         for (int& n : p) n = 0;
     for (int& n : keyCount) n = 0;

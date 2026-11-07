@@ -325,6 +325,13 @@ static int button(int b) {
     int i = b - kGpBase;
     return i >= 0 && i < GP_BUTTON_COUNT ? i : -1;
 }
+// The pad and button a gamepad_button_* call reads, noted as read (Input::padHeard).
+static Input::Pad* readButton(Runner& rt, int argc, Value* args, int& b) {
+    Input::Pad* p = pad(rt, I(0));
+    b = button(I(1));
+    if (p && b >= 0) p->buttonReadAt[b] = rt.stepCount + 1;
+    return p;
+}
 static float shoulderValue(const Input::Pad& p, int b) {
     // Analog triggers report through the axis-less button value in GameMaker.
     return p.down[b] ? 1.f : 0.f;
@@ -333,29 +340,30 @@ GMFN(gamepad_is_supported) { return boolV(true); }
 GMFN(gamepad_get_device_count) { return Value(static_cast<double>(Input::kPads)); }
 GMFN(gamepad_is_connected) { Input::Pad* p = pad(rt, I(0)); return boolV(p && p->connected); }
 GMFN(gamepad_button_check) {
-    Input::Pad* p = pad(rt, I(0));
-    int b = button(I(1));
+    int b;
+    Input::Pad* p = readButton(rt, argc, args, b);
     return boolV(p && b >= 0 && p->down[b]);
 }
 GMFN(gamepad_button_check_pressed) {
-    Input::Pad* p = pad(rt, I(0));
-    int b = button(I(1));
+    int b;
+    Input::Pad* p = readButton(rt, argc, args, b);
     return boolV(p && b >= 0 && p->pressed[b]);
 }
 GMFN(gamepad_button_check_released) {
-    Input::Pad* p = pad(rt, I(0));
-    int b = button(I(1));
+    int b;
+    Input::Pad* p = readButton(rt, argc, args, b);
     return boolV(p && b >= 0 && p->released[b]);
 }
 GMFN(gamepad_button_value) {
-    Input::Pad* p = pad(rt, I(0));
-    int b = button(I(1));
+    int b;
+    Input::Pad* p = readButton(rt, argc, args, b);
     return Value(p && b >= 0 ? static_cast<double>(shoulderValue(*p, b)) : 0.0);
 }
 GMFN(gamepad_axis_value) {
     Input::Pad* p = pad(rt, I(0));
     int a = I(1) - kGpBase - GP_BUTTON_COUNT;
     if (!p || a < 0 || a >= GP_AXIS_COUNT) return Value(0.0);
+    p->axesReadAt = rt.stepCount + 1;
     double v = p->axis[a], dz = p->deadzone;
     // Inside the dead zone: 0; outside it the rest of the range is stretched back to 0..1.
     if (dz > 0) v = std::fabs(v) < dz ? 0.0 : (std::fabs(v) - dz) / (1.0 - dz) * (v < 0 ? -1 : 1);
